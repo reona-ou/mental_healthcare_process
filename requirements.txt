@@ -1,0 +1,15 @@
+bertopic==0.17.4
+boto3==1.42.90
+const==0.0.0
+django_emoji==2.2.2
+emoji==2.15.0
+fugashi==1.5.2
+libs==0.0.10
+numpy==2.4.6
+pandas==3.0.3
+plotly==6.7.0
+scikit_learn==1.8.0
+sentence_transformers==5.5.0
+torch==2.11.0+cu130
+transformers==5.8.0
+umap_learn==0.5.12
