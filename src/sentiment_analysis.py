@@ -57,7 +57,8 @@ else:
     device_name = "CPU"
     print(f"CUDA不可用，使用CPU / CUDA利用不可、CPUを使用")
 
-MODEL_NAME = 'neuralnaut/deberta-wrime-emotions'
+LOCAL_MODEL_PATH = config.MODELS_DIR / 'deberta-wrime-emotions'
+MODEL_NAME = str(LOCAL_MODEL_PATH) if LOCAL_MODEL_PATH.exists() else 'neuralnaut/deberta-wrime-emotions'
 print(f"正在加载模型 {MODEL_NAME} ... / モデル {MODEL_NAME} を読み込み中...")
 tok = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)

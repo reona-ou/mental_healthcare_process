@@ -8,7 +8,7 @@ from plotly.subplots import make_subplots
 import config
 
 # 加载数据 / データの読み込み
-file_path = config.DATA_DIR / 'sentiment' / 'sentiment.csv'
+file_path = config.DATA_DIR / 'sentiment/sentiment.csv'
 try:
     df = pd.read_csv(file_path, on_bad_lines='warn')
 except Exception as e:

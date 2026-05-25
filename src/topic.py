@@ -18,8 +18,9 @@ from umap import UMAP
 
 warnings.filterwarnings("ignore")
 
-# 設定 / 设置
-MODEL_NAME = "tohoku-nlp/bert-base-japanese-v3"
+# 設定 / 设置 — 本地模型优先 / ローカルモデル優先
+LOCAL_MODEL_PATH = config.MODELS_DIR / "bert-base-japanese-v3"
+MODEL_NAME = str(LOCAL_MODEL_PATH) if LOCAL_MODEL_PATH.exists() else "tohoku-nlp/bert-base-japanese-v3"
 RANDOM_SEED = 42
 MIN_TOPIC_SIZE = 2  # 小さいデータセット用に小さめに設定 / 针对小型数据集设为较小值
 
