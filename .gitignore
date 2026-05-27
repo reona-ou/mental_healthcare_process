@@ -1,4 +1,4 @@
-# 忽略 PyCharm 的集成开发环境配置和缓存（必须）
+# 忽略 PyCharm 的集成开发环境配置和缓存
 .idea/
 .vscode/
 *.suo
@@ -7,7 +7,7 @@
 *.sln
 *.swp
 
-# 忽略 Python 运行产生的缓存文件（必须）
+# 忽略 Python 运行产生的缓存文件
 __pycache__/
 *.pyc
 *.pyo
@@ -15,7 +15,7 @@ __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
 
-# 忽略本地虚拟环境（如果你在项目里创建了 venv 的话）
+# 忽略本地虚拟环境
 venv/
 .venv/
 env/
@@ -26,11 +26,11 @@ logs/
 
 
 
-# 1. 忽略本地存储的模型权重目录（防止上传几个GB的模型）
+# 忽略本地存储的模型权重目录
 models/
 checkpoints/
 data/
-# 2. 忽略常见的模型权重格式
+# 忽略常见的模型权重格式
 *.bin
 *.pth
 *.pt
@@ -38,7 +38,7 @@ data/
 *.safetensors
 *.ckpt
 
-# 3. 忽略大型数据集文件（建议只在 data/ 下保留样例，大文件全忽略）
+# 忽略大型数据集文件
 *.zip
 *.tar.gz
 *.rar
@@ -46,8 +46,8 @@ data/
 *.csv
 *.jsonl
 
-# 4. 忽略临时文件和备份
-app(1).py
+# 忽略临时文件和备份
+app (1).py
 
-# 5. 忽略 Jupyter Notebook
+# 忽略 Jupyter Notebook
 *.ipynb
