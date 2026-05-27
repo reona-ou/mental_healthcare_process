@@ -154,13 +154,13 @@ process_chatbot('mochiko', df_mochiko)
 process_chatbot('pen_sensei', df_pen_sensei)
 
 
-# ============================================================
+
 # data_with_id.csv から全ユーザー入力を抽出・解析
 # data_with_id.csv 中提取全量用户输入并解析
 #
 # 同一 userId の同一 userInput は重複カウントしない
 # 相同 userId 的相同 userInput 不会重复计数
-# ============================================================
+
 
 def process_all_inputs():
     """

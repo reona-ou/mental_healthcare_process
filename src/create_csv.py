@@ -121,14 +121,97 @@ for i in range(len(df_chat)):
 df_final = pd.DataFrame(processed_rows)
 
 
-# 判断是否为无意义输入（含人格名+动作的快捷指令） / 意味のない入力を判定（ペルソナ名＋アクションのクイックコマンドを検出）
+
+# 无意义对话筛选
+# 固定关键词动作（FIXED_KEYWORD_ACTIONS）的触发文本 / 固定キーワードアクションのトリガーテキスト
+FIXED_KEYWORD_TEXTS = [
+    "もちこが共感",
+    "ほっこりおはなし",
+    "もちことモヤモヤまとめ",
+    "励ましもちこ",
+    "一緒に調べる",
+    "ぺん先生にきいてみる",
+    "むちことおしゃべり",
+]
+
+# 工具命令（handle_tool_command）文本 / ツールコマンドのテキスト
+TOOL_COMMAND_TEXTS = [
+    "うちのこいくつ？",
+    "子育てまんだら",
+    "AIたちの楽しい使い方",
+    "研究同意の確認",
+    "ストレッチを始める",
+    "スクワットを始める",
+    "筋トレ動画をみる",
+    "ストレスBOMB",
+    "ID",
+]
+
+# 同意确认自动回复中的特征文本 / 同意確認の自動返信に含まれる特徴テキスト
+CONSENT_KEYWORDS = "その機能を使うには、まず研究利用への同意が必要"
+
+# 合并所有需要排除的固定文本 / 除外すべき固定テキストを統合
+ALL_EXCLUDED_TEXTS = FIXED_KEYWORD_TEXTS + TOOL_COMMAND_TEXTS
+
+
 def is_meaningless_input(text):
-    if not isinstance(text, str): return True
-    pattern = re.compile(r'(ペン先生|もちこ).*?(お話しする|きいてみる|相談する)', re.IGNORECASE)
-    return bool(pattern.search(text))
+    """
+    判断是否为无意义输入：
+    - 非字符串 / 非文字列
+    - 包含人格切换快捷指令（如「もちことお話しする」）
+    - 包含固定关键词动作文本
+    - 包含工具命令文本
+    - 包含同意确认自动回复特征
+    - 输入过短（仅空白/符号等）
+
+    意味のない入力を判定：
+    - 非文字列
+    - ペルソナ切替クイックコマンド（例：「もちことお話しする」）
+    - 固定キーワードアクションのテキスト
+    - ツールコマンドのテキスト
+    - 同意確認自動返信の特徴テキストを含む
+    - 入力が短すぎる（空白・記号のみなど）
+    """
+    if not isinstance(text, str):
+        return True
+
+    stripped = text.strip()
+    if len(stripped) == 0:
+        return True
+
+    # 人格切换快捷指令模式 / ペルソナ切替クイックコマンドパターン
+    persona_switch_pattern = re.compile(
+        r'(ペン先生|もちこ|むちこ).*?(お話しする|きいてみる|相談する|に交代する)',
+        re.IGNORECASE
+    )
+    if persona_switch_pattern.search(stripped):
+        return True
+
+    # 固定关键词动作 & 工具命令 / 固定キーワードアクション＆ツールコマンド
+    if stripped in ALL_EXCLUDED_TEXTS:
+        return True
+
+    # 同意确认自动回复 / 同意確認の自動返信
+    if CONSENT_KEYWORDS in stripped:
+        return True
+
+    return False
 
 
-# 仅保留长度>=4的有效输入 / 入力文字列長が4以上の有効データのみ抽出
+# 注：df_final 中只包含 ReplyCurrentPersona 和 ReplyInterruptPersona 两种 replyType，
+# FixedKeywordSwitch、PostbackSwitch、ConsentRequired、ErrorOrchestrator 等无意义动作
+# 在主循环的配对逻辑中已被自然排除，无需额外过滤 action 列。
+# 注：df_final には ReplyCurrentPersona と ReplyInterruptPersona の2種類の replyType のみ含まれ、
+# FixedKeywordSwitch、PostbackSwitch、ConsentRequired、ErrorOrchestrator などの意味のないアクションは
+# メインループのペアリングロジックで自然に除外されているため、action列の追加フィルタは不要。
+
+# 仅保留有效数据：
+# 1. userInput长度>=4
+# 2. userInput不匹配无意义模式
+
+# 有効データのみ抽出：
+# 1. userInputの長さ>=4
+# 2. userInputが意味のないパターンにマッチしない
 mask_valid = (df_final['userInput'].str.len() >= 4) & (~df_final['userInput'].apply(is_meaningless_input))
 df_clean = df_final[mask_valid].copy()
 # 去重：按 userId, replyType, userInput, persona 组合，保留首次出现 / 重複除去：userId, replyType, userInput, personaの組み合わせで最初の出現を残す
