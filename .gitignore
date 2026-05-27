@@ -45,3 +45,9 @@ data/
 *.7z
 *.csv
 *.jsonl
+
+# 4. 忽略临时文件和备份
+app(1).py
+
+# 5. 忽略 Jupyter Notebook
+*.ipynb
