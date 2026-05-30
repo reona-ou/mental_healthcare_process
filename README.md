@@ -16,6 +16,7 @@
 ├── data/                  # Data directory (contains sample or processed data)
 ├── models/                # Local model checkpoints directory (GIT IGNORED)
 ├── src/                   # Core source code for training and evaluation
-│   ├── download_models.py # Script to download and cache Hugging Face models locally├── README.md              # Project description and guide
+│   ├── download_models.py # Script to download and cache Hugging Face models locally
+├── README.md              # Project description and guide
 ├── requirements.txt       # Environment dependencies
 └── LICENSE                # MIT License
