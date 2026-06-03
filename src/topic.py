@@ -47,8 +47,12 @@ SEED_TOPICS = [
     ["詐欺", "被害", "騙す", "騙された", "フィッシング"],
     # DV・暴力
     ["DV", "暴力", "殴る", "威圧", "脅す", "脅された"],
+    # 育児ストレス
+    ["育児", "子育て", "夜泣き", "育児ノイローゼ", "育児放棄", "イヤイヤ期", "子供が"],
+    # 婚姻・家庭ストレス
+    ["夫が嫌い", "嫁", "姑", "義理", "家庭内", "モラハラ", "パワハラ"],
     # その他の困難
-    ["虐待", "育児ノイローゼ", "育児放棄", "夫が嫌い", "もう無理", "限界", "死にたい"],
+    ["虐待", "もう無理", "限界", "死にたい", "消えたい", "生きる意味", "鬱", "うつ", "自殺"],
 ]
 
 # パターンベース検出用のキーワード組み合わせ（2カテゴリ分類用）
@@ -112,6 +116,34 @@ PATTERN_COMBOS = [
         "required": [["知り合", "出会い", "会い", "連絡", "メッセージ"]],
         "context": ["海外", "外国", "異性", "男性", "女性", "彼"],
         "risk": ["夫より", "信頼", "嬉しい", "楽しい", "優し", "気持", "秘密", "夢中"],
+    },
+    # 育児ストレスパターン
+    {
+        "name": "育児ストレス",
+        "required": [["育児", "子育て", "赤ちゃん", "子ども", "子供", "ベビー", "夜泣き", "イヤイヤ期"]],
+        "context": ["辛い", "苦しい", "疲れた", "限界", "もう無理", "しんどい", "大変", "死にたい", "眠い", "崩溃"],
+        "risk": [],
+    },
+    # 婚姻関係ストレスパターン
+    {
+        "name": "婚姻ストレス",
+        "required": [["夫", "妻", "旦那", "主人", "パートナー", "嫁", "姑", "義理"]],
+        "context": ["辛い", "苦しい", "疲れた", "限界", "もう無理", "しんどい", "嫌い", "鬱", "逃げたい", "死にたい"],
+        "risk": ["厳し", "怒鳴", "無視", "当た", "Ѳ", "暴力", "束縛", "支配"],
+    },
+    # メンタルヘルスパターン
+    {
+        "name": "メンタルヘルス",
+        "required": [["鬱", "うつ", "PTSD", "パニック", "不安障害", "適応障害", "プレッシャー", "バーンアウト", "燃え尽き"]],
+        "context": ["病院", "薬", "カウンセリング", "診断", "治療"],
+        "risk": ["辛い", "苦しい", "死にたい", "消えたい", "限界"],
+    },
+    # 一般的苦痛・限界パターン（required のみで判定）
+    {
+        "name": "一般的苦痛",
+        "required": [["死にたい", "消えたい", "もう無理", "限界", "自殺", "生きる意味", "いらない"]],
+        "context": [],
+        "risk": [],
     },
 ]
 
@@ -303,6 +335,10 @@ def check_pattern_combos(text: str) -> tuple[bool, str | None]:
         if not required_match:
             continue
 
+        # context が空の場合は required のみで判定（一般的苦痛パターン等）
+        if not pattern["context"]:
+            return True, pattern["name"]
+
         # context グループのうち少なくとも1つがマッチするか
         context_match = any(kw in text for kw in pattern["context"])
         if not context_match:
@@ -406,19 +442,17 @@ def classify_by_keywords(
 
     # カテゴリ分類（BERTopic半監督 + パターンマッチング + 直接キーワード）
     def assign_category(row):
-        # テキストにシードキーワードが直接含まれるか確認（userInput + replyText）
-        text_parts = [
-            str(row.get("userInput", "")),
-            str(row.get("replyText", "")),
-        ]
-        combined_text = " ".join(text_parts)
+        # userInput のみをチェック（replyText は回答者の内容なので分類に含めない）
+        user_text = str(row.get("userInput", ""))
+        reply_text = str(row.get("replyText", ""))
+        combined_text = f"{user_text} {reply_text}"
 
-        # 直接キーワードマッチング
-        if combined_text and any(kw in combined_text for kw in all_seed_keywords):
+        # 直接キーワードマッチング（userInput のみで判定）
+        if user_text and any(kw in user_text for kw in all_seed_keywords):
             return 0
 
-        # パターンベース組み合わせ検出
-        is_pattern_match, pattern_name = check_pattern_combos(combined_text)
+        # パターンベース組み合わせ検出（userInput のみで判定）
+        is_pattern_match, pattern_name = check_pattern_combos(user_text)
         if is_pattern_match:
             return 0
 

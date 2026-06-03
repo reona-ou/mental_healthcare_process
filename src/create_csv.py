@@ -161,6 +161,7 @@ MEANINGLESS_PHRASES = [
     "ちょっとどうしよう", "どうしよう",
     "たぶん", "おそらく",
     "きっと大丈夫", "大丈夫",
+    "ありがとう","分かりました"
 ]
 
 
@@ -193,7 +194,7 @@ def is_meaningless_input(text):
 
     # 人格切换快捷指令模式 / ペルソナ切替クイックコマンドパターン
     persona_switch_pattern = re.compile(
-        r'(ペン先生|もちこ|むちこ).*?(お話しする|きいてみる|相談する|に交代する)',
+        r'(ペン先生|もちこ|むちこ).*?(お話しする|きいてみる|相談する|に交代する|相談してみる|相談します)',
         re.IGNORECASE
     )
     if persona_switch_pattern.search(stripped):
