@@ -1,6 +1,7 @@
 bertopic==0.17.4
 emoji==2.15.0
 fugashi==1.5.2
+unidic-lite==1.0.8
 numpy==2.4.6
 pandas==3.0.3
 plotly==6.7.0
@@ -9,3 +10,5 @@ sentence_transformers==5.5.0
 torch==2.11.0+cu130
 transformers==5.8.0
 umap_learn==0.5.12
+accelerate>=1.0.0
+pyyaml>=6.0

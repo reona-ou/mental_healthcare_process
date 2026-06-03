@@ -153,6 +153,16 @@ CONSENT_KEYWORDS = "その機能を使うには、まず研究利用への同意
 # 合并所有需要排除的固定文本 / 除外すべき固定テキストを統合
 ALL_EXCLUDED_TEXTS = FIXED_KEYWORD_TEXTS + TOOL_COMMAND_TEXTS
 
+# 除外する曖昧表現・フィラー句 / 除外する曖昧表現・フィラー句
+MEANINGLESS_PHRASES = [
+    "そうかも", "そうかもね",
+    "かもしれない", "かも", "かもね",
+    "なんか", "なんだか",
+    "ちょっとどうしよう", "どうしよう",
+    "たぶん", "おそらく",
+    "きっと大丈夫", "大丈夫",
+]
+
 
 def is_meaningless_input(text):
     """
@@ -162,6 +172,7 @@ def is_meaningless_input(text):
     - 包含固定关键词动作文本
     - 包含工具命令文本
     - 包含同意确认自动回复特征
+    - 仅由曖昧表現・フィラー構成
     - 输入过短（仅空白/符号等）
 
     意味のない入力を判定：
@@ -170,6 +181,7 @@ def is_meaningless_input(text):
     - 固定キーワードアクションのテキスト
     - ツールコマンドのテキスト
     - 同意確認自動返信の特徴テキストを含む
+    - 曖昧表現・フィラーのみで構成されている
     - 入力が短すぎる（空白・記号のみなど）
     """
     if not isinstance(text, str):
@@ -193,6 +205,10 @@ def is_meaningless_input(text):
 
     # 同意确认自动回复 / 同意確認の自動返信
     if CONSENT_KEYWORDS in stripped:
+        return True
+
+    # 曖昧表現・フィラーのみで構成されているか / 曖昧表現・フィラーのみで構成されているか
+    if stripped in MEANINGLESS_PHRASES:
         return True
 
     return False

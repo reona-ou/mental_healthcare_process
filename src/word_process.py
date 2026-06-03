@@ -16,7 +16,6 @@ tagger = Tagger()
 exclude_pos = ['助詞', '接続詞']
 
 
-# ============================================================
 # 形态素解析による单词计数处理
 # 形態素解析による単語カウント処理
 #
@@ -26,7 +25,6 @@ exclude_pos = ['助詞', '接続詞']
 # ユーザー入力(input)とボット応答(output)それぞれに対して単語統計を行い、
 # 输出名词・动词・emoji的出现频率排行榜。
 # 名詞・動詞・emojiの出現頻度ランキングを出力する。
-# ============================================================
 
 
 def get_word_counts(texts, exclude_particles=False):
@@ -62,6 +60,7 @@ def get_word_counts(texts, exclude_particles=False):
 
         for word in tagger(text_without_emoji):
             pos = word.feature.pos1
+            surface = word.surface
 
             # 排除标点符号 / 句読点を除外する
             if pos in punctuation_pos:
@@ -70,7 +69,7 @@ def get_word_counts(texts, exclude_particles=False):
             if exclude_particles and pos in particle_pos:
                 continue
             # 直接使用原形（不做词形还原）/ 原形をそのまま使用（レマタイズしない）
-            word_data.append((word.surface, pos))
+            word_data.append((surface, pos))
 
     word_counts = Counter(word_data)
     return word_counts
