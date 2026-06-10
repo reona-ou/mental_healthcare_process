@@ -1,25 +1,3 @@
-"""
-感情分析クラスタリングスクリプト
-情感分析聚类脚本
-
-Pipeline / 流水线:
-  StandardScaler — 標準化 / 标准化
-  PCA — 主成分分析による次元削減 / 主成分分析降维
-  UMAP — 非線形次元削減 (コサイン類似度) / 非线性降维 (余弦相似度)
-  HDBSCAN — 密度ベースクラスタリング / 基于密度的聚类
-
-入力特徴量 / 输入特征: 感情16次元のみ (ユーザー評点は除外)
-  入力感情 8種 (joy, sadness, anticipation, surprise, anger, fear, disgust, trust)
-  返答感情 8種 (同上)
-
-ユーザー評点はクラスタリングに使用しない。
-聚类后通过各クラスタごとの評点分布でクラスタの意味を解釈する。
-用户评分不用于聚类，聚类后通过各聚类的评分分布来解释聚类的含义。
-
-注意: persona と replyType はクラスタリングの特徴量には使用しない。
-      クラスタ解釈時の分析のみに使用する。
-注意: persona 和 replyType 不作为聚类特征，仅用于聚类结果的解释分析。
-"""
 
 import pandas as pd
 import numpy as np
@@ -61,7 +39,7 @@ for col in cluster_features:
     df[col] = pd.to_numeric(df[col], errors='coerce')
 
 # 出力設定 / 输出设置
-output_dir = config.DATA_DIR / 'sentiment/kmeans_topic'
+output_dir = config.DATA_DIR / 'sentiment/cluster_topic'
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # レーダーチャート用の設定 / 雷达图设置
@@ -129,10 +107,8 @@ def run_pipeline(df_cat, cat_label, pca_dim, umap_dim, nn, md, mcs, ms, output_d
       output_dir: 出力ディレクトリ / 输出目录
     """
 
-    print(f"\n{'='*60}")
     print(f"Category {cat_label} (n={len(df_cat)})")
     print(f"Pipeline: StandardScaler → PCA({pca_dim}D) → UMAP({umap_dim}D, cosine) → HDBSCAN")
-    print(f"{'='*60}")
 
     X = df_cat[cluster_features].fillna(0)
 
@@ -185,7 +161,7 @@ def run_pipeline(df_cat, cat_label, pca_dim, umap_dim, nn, md, mcs, ms, output_d
         top_re = max(emotion_categories, key=lambda e: c[f'reply_{e}'])
         print(f"    Cluster {cl}: 入力={top_in}({c[f'input_{top_in}']:.2f}), 返答={top_re}({c[f'reply_{top_re}']:.2f})")
 
-    # ユーザー評点を聚类後に导入 / 聚类后导入用户评分
+    # ユーザー評点をクラスタリング後に導入 / 聚类后导入用户评分
     df_research = pd.read_csv(config.DATA_DIR / 'real_research.csv', on_bad_lines='warn')
     df_research['userId'] = df_research['userId'].astype(str)
     df_ratings = df_research[['userId'] + RATING_COLS].copy()

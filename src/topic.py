@@ -203,11 +203,11 @@ def run_topic_modeling(
     print(f"  有效文本数: {len(valid_texts)} / 有効テキスト数: {len(valid_texts)}")
 
     # 使用 fugashi 预处理（用于 BERTopic 的 CountVectorizer）/ fugashi で前処理（BERTopic の CountVectorizer 用）
-    print("  [1/4] 正在使用 fugashi 进行形态素解析与预处理... / fugashi による形態素解析・前処理中...")
+    print("正在使用 fugashi 进行形态素解析与预处理... / fugashi による形態素解析・前処理中...")
     tokenized_texts = [tokenize_with_fugashi(t) for t in valid_texts]
 
     # 生成 BERT 嵌入向量 / BERT埋め込みの生成
-    print(f"  [2/4] 正在生成 BERT 嵌入向量（{MODEL_NAME}）... / BERT埋め込み生成中...")
+    print(f"正在生成 BERT 嵌入向量（{MODEL_NAME}）... / BERT埋め込み生成中...")
     embedding_model = SentenceTransformer(MODEL_NAME, device=DEVICE)
     embeddings = embedding_model.encode(
         valid_texts,
@@ -247,7 +247,7 @@ def run_topic_modeling(
     )
 
     # 保存结果 / 結果の保存
-    print("  [4/4] 正在保存结果... / 結果保存中...")
+    print("正在保存结果... / 結果保存中...")
     output_dir.mkdir(parents=True, exist_ok=True)
     prefix = f"{dataset_name}_{text_type}"
 
@@ -320,7 +320,7 @@ def check_pattern_combos(text: str) -> tuple[bool, str | None]:
         text: チェック対象のテキスト
 
     Returns:
-        (is_match, pattern_name): マッチした場合 (True, パターン名)、否则 (False, None)
+        (is_match, pattern_name): マッチした場合 (True, パターン名)、それ以外 (False, None)
     """
     if not isinstance(text, str) or not text.strip():
         return False, None

@@ -185,16 +185,16 @@ def build_scatter_plot(df_mochiko, df_pen_sensei, title_suffix, output_filename)
 
 
 
-# ============================================================
+
 # word_process.py 出力ファイルのパス定義
 # word_process.py 输出文件的路径定义
-# ============================================================
+
 BASE_M = config.DATA_DIR / 'word_counts/mochiko/mochiko'
 BASE_P = config.DATA_DIR / 'word_counts/pen_sensei/pen_sensei'
 
-# ============================================================
+
 # output（bot応答）の比較図 / output（bot回复）的对比图
-# ============================================================
+
 
 # 全品詞（output）/ 全品词（output）
 build_scatter_plot(
@@ -228,7 +228,6 @@ build_scatter_plot(
     output_filename='output_visualization_emojis.html'
 )
 
-# ============================================================
 # input（全ユーザー入力）の単語頻度ランキング図
 # input（全量用户输入）的词频排行榜图
 #
@@ -236,7 +235,6 @@ build_scatter_plot(
 # 全ユーザー入力に対して、品詞別 Top 30 を棒グラフで表示する
 # 从 data_with_id.csv 按 (userId, userInput) 去重后，
 # 对全量用户输入按品词展示 Top 30 柱状图
-# ============================================================
 
 
 def build_bar_chart(csv_path, title_suffix, output_filename, top_n=30):
