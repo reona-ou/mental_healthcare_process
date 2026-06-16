@@ -73,20 +73,20 @@ def make_hover_text(row):
             f"input: {str(row.get('userInput', ''))[:40]}...")
 
 
-def make_radar_layout(title, width=1400, height=650):
+def make_radar_layout(title, width=1400, height=700):
     """レーダーチャート共通レイアウトを返す / 返回雷达图通用布局"""
     return dict(
-        title=dict(text=title, x=0.5, font=dict(size=20), y=0.98),
+        title=dict(text=title, x=0.5, font=dict(size=18), y=0.98),
         polar=dict(radialaxis=dict(visible=True, range=[0, 1]), bgcolor='white'),
         polar2=dict(radialaxis=dict(visible=True, range=[0, 1]), bgcolor='white'),
         width=width, height=height, paper_bgcolor='white',
-        legend=dict(font=dict(size=11), x=0.45, y=-0.12, orientation='h'),
-        margin=dict(l=80, r=80, t=120, b=80),
+        legend=dict(font=dict(size=10), x=0.5, y=-0.1, orientation='h', xanchor='center'),
+        margin=dict(l=80, r=80, t=100, b=80),
         annotations=[
             dict(text='入力感情 / 输入情感', x=0.22, y=1.12, xref='paper', yref='paper',
-                 showarrow=False, font=dict(size=15)),
+                 showarrow=False, font=dict(size=14)),
             dict(text='返答感情 / 回复情感', x=0.78, y=1.12, xref='paper', yref='paper',
-                 showarrow=False, font=dict(size=15))]
+                 showarrow=False, font=dict(size=14))]
     )
 
 
@@ -211,7 +211,8 @@ def run_pipeline(df_cat, cat_label, pca_dim, umap_dim, nn, md, mcs, ms, output_d
         title=dict(text=f'Category {cat_label} — UMAP {dim}D cosine (Sil={sil:.3f})', x=0.5, font=dict(size=18)),
         paper_bgcolor='white', margin=dict(l=60, r=60, t=100, b=60))
     if dim >= 3:
-        layout_kw.update(scene=dict(xaxis_title='Dim 1', yaxis_title='Dim 2', zaxis_title='Dim 3', bgcolor='white'),
+        layout_kw.update(scene=dict(xaxis_title='Dim 1', yaxis_title='Dim 2', zaxis_title='Dim 3',
+                                    bgcolor='white', aspectmode='cube'),
                          width=1000, height=800)
     else:
         layout_kw.update(xaxis_title='UMAP Dim 1', yaxis_title='UMAP Dim 2',
@@ -236,8 +237,8 @@ def run_pipeline(df_cat, cat_label, pca_dim, umap_dim, nn, md, mcs, ms, output_d
     fig_tsne.update_layout(
         title=dict(text=f'Category {cat_label} — t-SNE (Sil={sil:.3f})', x=0.5, font=dict(size=18)),
         xaxis_title='t-SNE 1', yaxis_title='t-SNE 2',
-        width=800, height=600, plot_bgcolor='white', paper_bgcolor='white',
-        margin=dict(l=60, r=60, t=80, b=60))
+        width=900, height=700, plot_bgcolor='white', paper_bgcolor='white',
+        margin=dict(l=60, r=60, t=100, b=60))
     fig_tsne.write_html(output_dir / f'category{cat_label}_tsne.html')
 
     # レーダーチャート (replyType別 / 按replyType分类)
@@ -291,9 +292,22 @@ def run_pipeline(df_cat, cat_label, pca_dim, umap_dim, nn, md, mcs, ms, output_d
             name=f'C{cl} 差分', legendgroup=f'cl{cl}',
             line=dict(color=color), opacity=0.3), row=1, col=2)
 
-    fig_diff.update_layout(**make_radar_layout(f'Category {cat_label} — 感情変化 / 情感变化'))
+    fig_diff.add_trace(go.Scatterpolar(
+        r=[0] * len(radar_categories), theta=radar_categories,
+        mode='lines', line=dict(color='gray', width=1.5, dash='dash'),
+        name='r=0', showlegend=False), row=1, col=2)
     fig_diff.update_layout(
-        polar2=dict(radialaxis=dict(visible=True, range=[-0.5, 0.5]), bgcolor='white'))
+        title=dict(text=f'Category {cat_label} — 感情変化 / 情感变化', x=0.5, font=dict(size=18), y=0.98),
+        polar=dict(radialaxis=dict(visible=True, range=[0, 1]), bgcolor='white'),
+        polar2=dict(radialaxis=dict(visible=True, range=[-0.5, 0.5]), bgcolor='white'),
+        width=1400, height=750, paper_bgcolor='white',
+        legend=dict(font=dict(size=10), x=0.5, y=-0.05, orientation='h', xanchor='center'),
+        margin=dict(l=80, r=80, t=120, b=80),
+        annotations=[
+            dict(text='オリジナルデータ', x=0.22, y=1.08, xref='paper', yref='paper',
+                 showarrow=False, font=dict(size=14)),
+            dict(text='差分', x=0.78, y=1.08, xref='paper', yref='paper',
+                 showarrow=False, font=dict(size=14))])
     fig_diff.write_html(output_dir / f'category{cat_label}_emotion_diff.html')
 
     # ユーザー評点箱ひげ図 (平均値付き) / 用户评分箱线图 (含均值)
@@ -312,8 +326,129 @@ def run_pipeline(df_cat, cat_label, pca_dim, umap_dim, nn, md, mcs, ms, output_d
         title=dict(text=f'Category {cat_label} — ユーザー評点分布 / 用户评分分布', x=0.5, font=dict(size=18)),
         yaxis_title='評点 / 评分', boxmode='group',
         width=1300, height=700, paper_bgcolor='white', plot_bgcolor='white',
-        margin=dict(l=60, r=60, t=80, b=60))
+        margin=dict(l=60, r=60, t=100, b=60),
+        legend=dict(font=dict(size=10), x=0.5, y=-0.08, orientation='h', xanchor='center'))
     fig_rating.write_html(output_dir / f'category{cat_label}_rating_boxplot.html')
+
+    # 感情差分ジッタープロット + 柱状图 (replyType別 / 按replyType分类)
+    reply_type_configs = [
+        ('all', None, ''),
+        ('current', 'ReplyCurrentPersona', ' — Current Persona'),
+        ('interrupt', 'ReplyInterruptPersona', ' — Interrupt Persona'),
+    ]
+    for rt_key, rt_filter, rt_suffix in reply_type_configs:
+        df_rt = df_valid if rt_filter is None else df_valid[df_valid['replyType'] == rt_filter]
+        if df_rt.empty:
+            continue
+        n_cl_rt = len(df_rt['cluster'].unique())
+
+        # --- Jitter Plot ---
+        fig_jitter = make_subplots(
+            rows=1, cols=n_cl_rt,
+            subplot_titles=[f'Cluster {cl} (n={len(df_rt[df_rt["cluster"]==cl])})'
+                            for cl in sorted(df_rt['cluster'].unique())],
+            horizontal_spacing=0.06
+        )
+        all_diffs = []
+        for ci, cl in enumerate(sorted(df_rt['cluster'].unique())):
+            subset = df_rt[df_rt['cluster'] == cl]
+            color = cluster_colors[cl % len(cluster_colors)]
+            means, mins, maxs = [], [], []
+            for ei, emo in enumerate(emotion_categories):
+                diffs = subset[f'reply_{emo}'].values - subset[f'input_{emo}'].values
+                all_diffs.extend(diffs)
+                jitter_x = np.full(len(diffs), ei) + np.random.uniform(-0.15, 0.15, len(diffs))
+                fig_jitter.add_trace(go.Scatter(
+                    x=jitter_x, y=diffs, mode='markers',
+                    marker=dict(size=4, color=color, opacity=0.4),
+                    name=f'Cluster {cl}' if ei == 0 else None,
+                    legendgroup=f'cl{cl}', showlegend=(ei == 0),
+                    hovertext=[f'{emo}: {d:.3f}' for d in diffs], hoverinfo='text'
+                ), row=1, col=ci + 1)
+                means.append(np.mean(diffs))
+                mins.append(np.min(diffs))
+                maxs.append(np.max(diffs))
+            stat_configs = [
+                (means, 'solid', 'Mean', True),
+                (mins, 'dot', 'Min', False),
+                (maxs, 'dash', 'Max', False),
+            ]
+            for stat_vals, dash, lbl, show_leg in stat_configs:
+                fig_jitter.add_trace(go.Scatter(
+                    x=list(range(len(emotion_categories))), y=stat_vals,
+                    mode='lines+markers', marker=dict(size=5),
+                    line=dict(color=color, width=2, dash=dash),
+                    name=f'C{cl} {lbl}',
+                    legendgroup=f'cl{cl}', showlegend=show_leg
+                ), row=1, col=ci + 1)
+        jitter_bound = np.ceil(max(abs(np.min(all_diffs)), abs(np.max(all_diffs))) * 10) / 10
+        fig_jitter.update_xaxes(
+            tickvals=list(range(len(emotion_categories))),
+            ticktext=emotion_labels, tickangle=-45
+        )
+        for ci in range(n_cl_rt):
+            fig_jitter.add_hline(y=0, line_dash='dash', line_color='gray',
+                                 opacity=0.5, row=1, col=ci + 1)
+        fig_jitter.update_layout(
+            title=dict(text=f'Category {cat_label}{rt_suffix} — 感情差分ジッタープロット',
+                       x=0.5, font=dict(size=18)),
+            yaxis_title='差分値 (reply - input)',
+            width=max(400 * n_cl_rt, 800), height=600,
+            paper_bgcolor='white', plot_bgcolor='white',
+            margin=dict(l=60, r=60, t=100, b=100),
+            legend=dict(font=dict(size=10), x=0.5, y=-0.2, orientation='h', xanchor='center')
+        )
+        for ci in range(n_cl_rt):
+            axis_key = f'yaxis{ci + 1}' if ci > 0 else 'yaxis'
+            fig_jitter.update_layout(**{axis_key: dict(range=[-jitter_bound, jitter_bound])})
+        fig_jitter.write_html(output_dir / f'category{cat_label}_jitter_diff_{rt_key}.html')
+
+        # --- Stats Bar Chart ---
+        fig_stats = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=['Mean', 'Max', 'Min', 'Standard Deviation'],
+            horizontal_spacing=0.1, vertical_spacing=0.15
+        )
+        stats_all = []
+        for cl in sorted(df_rt['cluster'].unique()):
+            subset = df_rt[df_rt['cluster'] == cl]
+            color = cluster_colors[cl % len(cluster_colors)]
+            stat_means, stat_maxs, stat_mins, stat_sds = [], [], [], []
+            for emo in emotion_categories:
+                diffs = subset[f'reply_{emo}'].values - subset[f'input_{emo}'].values
+                stat_means.append(np.mean(diffs))
+                stat_maxs.append(np.max(diffs))
+                stat_mins.append(np.min(diffs))
+                stat_sds.append(np.std(diffs))
+            stats_all.extend(stat_means + stat_maxs + stat_mins + stat_sds)
+            for vals, row, col, stat_name in [
+                (stat_means, 1, 1, 'mean'), (stat_maxs, 1, 2, 'max'),
+                (stat_mins, 2, 1, 'min'), (stat_sds, 2, 2, 'sd'),
+            ]:
+                fig_stats.add_trace(go.Bar(
+                    x=emotion_labels, y=vals, marker_color=color,
+                    name=f'Cluster {cl}', legendgroup=f'cl{cl}',
+                    showlegend=(stat_name == 'mean')
+                ), row=row, col=col)
+        stats_bound = np.ceil(max(abs(np.min(stats_all)), abs(np.max(stats_all))) * 10) / 10
+        for r, c in [(1, 1), (1, 2), (2, 1), (2, 2)]:
+            fig_stats.add_hline(y=0, line_dash='dash', line_color='gray',
+                                opacity=0.4, row=r, col=c)
+        fig_stats.update_layout(
+            title=dict(text=f'Category {cat_label}{rt_suffix} — クラスタ別統計比較',
+                       x=0.5, font=dict(size=18)),
+            yaxis_title='差分値', yaxis3_title='差分値',
+            yaxis=dict(range=[-stats_bound, stats_bound]),
+            yaxis2=dict(range=[-stats_bound, stats_bound]),
+            yaxis3=dict(range=[-stats_bound, stats_bound]),
+            yaxis4=dict(range=[-stats_bound, stats_bound]),
+            barmode='group',
+            width=1200, height=900,
+            paper_bgcolor='white', plot_bgcolor='white',
+            margin=dict(l=60, r=60, t=100, b=60),
+            legend=dict(font=dict(size=10), x=0.5, y=-0.05, orientation='h', xanchor='center')
+        )
+        fig_stats.write_html(output_dir / f'category{cat_label}_cluster_stats_{rt_key}.html')
 
     # 結果保存 / 结果保存
     df_cat.to_csv(output_dir / f'category{cat_label}_clusters.csv', index=False, encoding='utf-8-sig')
