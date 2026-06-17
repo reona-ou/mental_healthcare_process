@@ -1,5 +1,6 @@
 # 忽略 PyCharm 的集成开发环境配置和缓存
 .idea/
+.mimocode/
 .vscode/
 *.suo
 *.ntvs*
@@ -48,6 +49,7 @@ data/
 
 # 忽略临时文件和备份
 app (1).py
+temp/
 
 # 忽略 Jupyter Notebook
 *.ipynb
