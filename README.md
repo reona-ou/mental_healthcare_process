@@ -38,23 +38,6 @@
 ├── requirements.txt               # Environment dependencies
 └── LICENSE                        # MIT License
 ```
-
----
-
-## 🚀 Setup
-
-```bash
-# Create conda environment
-conda create -n hanai_llm python=3.11
-conda activate hanai_llm
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Download models locally (optional)
-python src/download_models.py
-```
-
 ---
 
 ## 📊 Analysis Scripts
@@ -79,37 +62,10 @@ python src/download_models.py
 - Category-specific visualizations (UMAP, radar, jitter plots)
 - Topic distribution within clusters
 - Outputs: `data/sentiment/cluster_topic_diff/category{0,1}/`
-
----
-
-## 📈 Output Structure
-
-```
-data/sentiment/cluster_topic_diff/
-├── all_diff_*.html/csv           # All-session results
-├── category0/                    # Category 0 (negative)
-│   ├── category0_diff_umap_2d.html
-│   ├── category0_diff_tsne.html
-│   ├── category0_diff_*_radar.html
-│   ├── category0_diff_rating_boxplot.html
-│   ├── category0_diff_jitter_*.html
-│   ├── category0_topic_cluster_distribution.html
-│   └── category0_diff_clusters.csv
-└── category1/                    # Category 1 (non-negative)
-    └── (same structure as category0)
-```
-
----
-
-## 📋 Classification Categories
-
-- **Category 0 (Negative)**: Divorce, affair, DV, fraud, miscarriage, mental health issues
-- **Category 1 (Non-negative)**: General conversations, questions, positive interactions
-
 ---
 
 ## 📝 Notes
 
 - Models are downloaded to `models/` directory (gitignored)
-- Large data files are stored in `data/` directory
+- data files are stored in `data/` directory
 - Visualization outputs are HTML files (interactive via Plotly)
