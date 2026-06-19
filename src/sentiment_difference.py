@@ -208,3 +208,25 @@ for user_id, user_df in df.groupby("userId"):
             print(f"可视化已保存 / 可視化保存: {html_path}")
 
 print(f"\n全部用户处理完成，输出目录: {output_dir} / 全ユーザーの処理が完了しました。出力先: {output_dir}")
+
+# 全session一括出力 / 全session统一输出
+print(f"\n全session一括出力を生成中... / 正在生成全session统一输出...")
+
+all_rows = []
+for _, row in df.iterrows():
+    record = {
+        "session_id": row["session_id"],
+        "userId": row["userId"],
+        "replyType": row["replyType"],
+        "persona": row["persona"],
+        "userInput": row["userInput"],
+        "replyText": row["replyText"],
+    }
+    for emo in emotions:
+        record[f"diff_{emo}"] = row[f"reply_{emo}"] - row[f"input_{emo}"]
+    all_rows.append(record)
+
+all_df = pd.DataFrame(all_rows)
+all_path = config.DATA_DIR / "sentiment" / "sentiment_all_diff.csv"
+all_df.to_csv(all_path, index=False, encoding="utf-8-sig")
+print(f"全session差分CSV已保存 / 全session差分CSV保存: {all_path} ({len(all_df)}行)")

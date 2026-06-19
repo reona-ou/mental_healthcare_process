@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore")
 LOCAL_MODEL_PATH = config.MODELS_DIR / "bert-base-japanese-v3"
 MODEL_NAME = str(LOCAL_MODEL_PATH) if LOCAL_MODEL_PATH.exists() else "tohoku-nlp/bert-base-japanese-v3"
 RANDOM_SEED = 42
-MIN_TOPIC_SIZE = 2  # 针对小型数据集设为较小值 / 小さいデータセット用に小さめに設定
+MIN_TOPIC_SIZE = 5  # 优化：从2改为5，减少碎片化
 
 # 如果 CUDA 可用则使用 GPU / CUDA が利用可能なら GPU を使用
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -38,28 +38,24 @@ PUNCTUATION_POS = {"補助記号", "記号", "助詞", "助動詞", "接続詞",
 # シードトピック（BERTopic 半監督モード用）
 SEED_TOPICS = [
     # 離婚・別離
-    ["離婚", "別れ", "別れたい", "別居", "親権"],
+    ["離婚", "別れ", "別れたい", "別居", "親権", "離婚届", "離婚届け", "離婚を考え", "結婚を終わら"],
     # 浮気・不倫
-    ["浮気", "不倫", "愛人", "二股", "浮気相手", "不倫相手", "裏切り", "裏切られた"],
+    ["浮気", "不倫", "愛人", "二股", "浮気相手", "不倫相手", "裏切り", "裏切られた", "騙されてる", "騙された"],
     # 流産・妊娠問題
-    ["流産", "妊娠中絶", "死産"],
+    ["流産", "妊娠中絶", "死産", "流産した", "流産して", "流産後"],
     # 詐欺・被害
-    ["詐欺", "被害", "騙す", "騙された", "フィッシング"],
+    ["詐欺", "被害", "騙す", "騙された", "フィッシング", "騙されてない", "詐欺じゃない"],
     # DV・暴力
-    ["DV", "暴力", "殴る", "威圧", "脅す", "脅された"],
-    # 育児ストレス
-    ["育児", "子育て", "夜泣き", "育児ノイローゼ", "育児放棄", "イヤイヤ期", "子供が"],
+    ["DV", "暴力", "暴行", "傷害", "殴", "蹴", "脅", "叩", "暴言", "怒鳴", "つつか", "ひっぱた", "物投げ"],
+    # モラハラ・精神的虐待
+    ["モラハラ", "モラルハラスメント", "パワハラ", "精神的虐待", "嫌味", "陰口", "無視"],
     # 婚姻・家庭ストレス
-    ["夫が嫌い", "嫁", "姑", "義理", "家庭内", "モラハラ", "パワハラ"],
+    ["夫が嫌い", "嫁", "姑", "義理", "家庭内", "escape", "逃げたい", "もう無理", "限界"],
     # その他の困難
-    ["虐待", "もう無理", "限界", "死にたい", "消えたい", "生きる意味", "鬱", "うつ", "自殺"],
+    ["死にたい", "消えたい", "生きる意味", "鬱", "うつ", "自殺", "死ねない", "死なない"],
 ]
 
 # パターンベース検出用のキーワード組み合わせ（2カテゴリ分類用）
-# 複数キーワードが同時出現する場合に負面と判定
-# required: 必須キーワード（少なくとも1つマッチ）
-# context: 文脈キーワード（required と同時出現で負面判定）
-# risk: リスクキーワード（required + context + risk で最終判定）
 PATTERN_COMBOS = [
     # 離婚別離パターン
     {
@@ -117,13 +113,6 @@ PATTERN_COMBOS = [
         "context": ["海外", "外国", "異性", "男性", "女性", "彼"],
         "risk": ["夫より", "信頼", "嬉しい", "楽しい", "優し", "気持", "秘密", "夢中"],
     },
-    # 育児ストレスパターン
-    {
-        "name": "育児ストレス",
-        "required": [["育児", "子育て", "赤ちゃん", "子ども", "子供", "ベビー", "夜泣き", "イヤイヤ期"]],
-        "context": ["辛い", "苦しい", "疲れた", "限界", "もう無理", "しんどい", "大変", "死にたい", "眠い", "崩溃"],
-        "risk": [],
-    },
     # 婚姻関係ストレスパターン
     {
         "name": "婚姻ストレス",
@@ -153,10 +142,6 @@ def tokenize_with_fugashi(text: str) -> str:
     使用 fugashi 进行形态素解析，
     将名词、动词、形容词的原形以空格分隔返回。
     作为 BERTopic 的 CountVectorizer 的预处理。
-
-    fugashi を使って形態素解析し、
-    名詞・動詞・形容詞の原形をスペース区切りで返す。
-    BERTopic の CountVectorizer に渡すための前処理。
     """
     if not isinstance(text, str) or not text.strip():
         return ""
@@ -166,7 +151,6 @@ def tokenize_with_fugashi(text: str) -> str:
         if pos in PUNCTUATION_POS:
             continue
         if pos in KEEP_POS:
-            # 如果有原形(lemma)则使用原形，否则使用表层形 / 原形（lemma）があれば原形を、なければ表層形を使用
             lemma = word.feature.lemma if word.feature.lemma else word.surface
             tokens.append(lemma)
     return " ".join(tokens)
@@ -182,44 +166,31 @@ def run_topic_modeling(
 ):
     """
     对给定的文本列表执行话题建模。
-    与えられたテキストリストに対してトピックモデリングを実行する。
-
-    Args:
-        texts: 分析对象的文本列表 / 分析対象のテキストリスト
-        dataset_name: 数据集名称（例：'mochiko'） / データセット名（例: 'mochiko'）
-        text_type: 文本类型（例：'userInput' 或 'replyText'） / テキスト種別（例: 'userInput' or 'replyText'）
-        output_dir: 结果输出目录 / 結果出力ディレクトリ
-        n_topics: 指定话题数（None 则自动决定） / トピック数の指定（None なら自動決定）
     """
     print(f"  话题建模: {dataset_name} / {text_type}")
     print(f"  文本数: {len(texts)} / テキスト数: {len(texts)}")
 
-    # 排除空文本 / 空テキストを除外
     valid_texts = [t for t in texts if isinstance(t, str) and t.strip()]
     if len(valid_texts) < 3:
-        print(f"  ⚠ 有效文本仅有{len(valid_texts)}条，跳过处理 / 有効テキストが{len(valid_texts)}件しかないためスキップ")
+        print(f"  ⚠ 有效文本仅有{len(valid_texts)}条，跳过处理")
         return
 
-    print(f"  有效文本数: {len(valid_texts)} / 有効テキスト数: {len(valid_texts)}")
+    print(f"  有效文本数: {len(valid_texts)}")
 
-    # 使用 fugashi 预处理（用于 BERTopic 的 CountVectorizer）/ fugashi で前処理（BERTopic の CountVectorizer 用）
-    print("正在使用 fugashi 进行形态素解析与预处理... / fugashi による形態素解析・前処理中...")
+    print("正在使用 fugashi 进行形态素解析与预处理...")
     tokenized_texts = [tokenize_with_fugashi(t) for t in valid_texts]
 
-    # 生成 BERT 嵌入向量 / BERT埋め込みの生成
-    print(f"正在生成 BERT 嵌入向量（{MODEL_NAME}）... / BERT埋め込み生成中...")
+    print(f"正在生成 BERT 嵌入向量（{MODEL_NAME}）...")
     embedding_model = SentenceTransformer(MODEL_NAME, device=DEVICE)
     embeddings = embedding_model.encode(
         valid_texts,
         show_progress_bar=True,
         batch_size=64 if DEVICE == "cuda" else 16,
     )
-    print(f"  嵌入维度: {embeddings.shape} / 埋め込み次元: {embeddings.shape}")
+    print(f"  嵌入维度: {embeddings.shape}")
 
-    # 使用 BERTopic 执行话题建模 / BERTopic によるトピックモデリング
-    print("  正在执行 BERTopic 话题建模... / BERTopic によるトピックモデリング実行中...")
+    print("  正在执行 BERTopic 话题建模...")
 
-    # UMAP 的可重复性设置 / UMAP の再現性設定
     umap_model = UMAP(
         n_neighbors=15,
         n_components=5,
@@ -228,11 +199,10 @@ def run_topic_modeling(
         random_state=RANDOM_SEED,
     )
 
-    # CountVectorizer: 使用 fugashi 预处理后的文本 / fugashi で前処理済みのテキストを使用
     vectorizer = CountVectorizer()
 
     topic_model = BERTopic(
-        embedding_model=None,  # 使用预先计算的嵌入向量 / 事前計算済み埋め込みを使用
+        embedding_model=None,
         umap_model=umap_model,
         vectorizer_model=vectorizer,
         min_topic_size=MIN_TOPIC_SIZE,
@@ -246,22 +216,19 @@ def run_topic_modeling(
         embeddings=embeddings,
     )
 
-    # 保存结果 / 結果の保存
-    print("正在保存结果... / 結果保存中...")
+    print("正在保存结果...")
     output_dir.mkdir(parents=True, exist_ok=True)
     prefix = f"{dataset_name}_{text_type}"
 
-    # 保存话题信息 / トピック情報の保存
     topic_info = topic_model.get_topic_info()
     topic_info_path = output_dir / f"{prefix}_topic_info.csv"
     topic_info.to_csv(topic_info_path, index=False, encoding="utf-8-sig")
     print(f"  → トピック情報: {topic_info_path}")
 
-    # 保存各话题的关键词 / 各トピックのキーワード保存
     all_keywords = []
     for topic_id in topic_info["Topic"].values:
         if topic_id == -1:
-            continue  # 跳过离群话题 / アウトライアートピックはスキップ
+            continue
         keywords = topic_model.get_topic(topic_id)
         for word, score in keywords:
             all_keywords.append({
@@ -274,7 +241,6 @@ def run_topic_modeling(
     keywords_df.to_csv(keywords_path, index=False, encoding="utf-8-sig")
     print(f"  → 话题关键词: {keywords_path}")
 
-    # 保存文档-话题分配结果 / ドキュメント-トピック割り当ての保存
     doc_topics = pd.DataFrame({
         "document_index": range(len(valid_texts)),
         "original_text": valid_texts,
@@ -287,16 +253,14 @@ def run_topic_modeling(
     doc_topics.to_csv(doc_topics_path, index=False, encoding="utf-8-sig")
     print(f"  → 文档-话题分配结果: {doc_topics_path}")
 
-    # 显示话题数摘要 / トピック数のサマリー表示
     n_valid_topics = len([t for t in topic_info["Topic"].values if t != -1])
     n_outliers = len([t for t in topics if t == -1])
-    print(f"\n  ■ 结果摘要 / 結果サマリー:")
-    print(f"    话题数: {n_valid_topics} / トピック数: {n_valid_topics}")
-    print(f"    离群文档数: {n_outliers} / {len(topics)} / アウトライアードキュメント数: {n_outliers} / {len(topics)}")
-    print(f"    话题占比: {(len(topics) - n_outliers) / len(topics) * 100:.1f}% / トピック割合: {(len(topics) - n_outliers) / len(topics) * 100:.1f}%")
+    print(f"\n  ■ 结果摘要:")
+    print(f"    话题数: {n_valid_topics}")
+    print(f"    离群文档数: {n_outliers} / {len(topics)}")
+    print(f"    话题占比: {(len(topics) - n_outliers) / len(topics) * 100:.1f}%")
 
-    # 显示话题一览 / トピック一覧の表示
-    print(f"\n  ■ 话题一览 / トピック一覧:")
+    print(f"\n  ■ 话题一览:")
     for topic_id in topic_info["Topic"].values:
         if topic_id == -1:
             continue
@@ -304,7 +268,6 @@ def run_topic_modeling(
         name = topic_info.loc[topic_info["Topic"] == topic_id, "Name"].values[0]
         print(f"    Topic {topic_id} ({count}件): {name}")
 
-    # 2カテゴリ分類CSVを生成
     if source_df is not None:
         print(f"\n  [追加] 2カテゴリ分類を作成中...")
         classify_by_keywords(topic_model, valid_texts, topics, source_df, output_dir, prefix)
@@ -315,18 +278,11 @@ def run_topic_modeling(
 def check_pattern_combos(text: str) -> tuple[bool, str | None]:
     """
     テキスト内でパターンベースの組み合わせを検出する。
-
-    Args:
-        text: チェック対象のテキスト
-
-    Returns:
-        (is_match, pattern_name): マッチした場合 (True, パターン名)、それ以外 (False, None)
     """
     if not isinstance(text, str) or not text.strip():
         return False, None
 
     for pattern in PATTERN_COMBOS:
-        # required グループのうち少なくとも1つがマッチするか
         required_match = False
         for req_group in pattern["required"]:
             if any(kw in text for kw in req_group):
@@ -335,20 +291,13 @@ def check_pattern_combos(text: str) -> tuple[bool, str | None]:
         if not required_match:
             continue
 
-        # context が空の場合は required のみで判定（一般的苦痛パターン等）
         if not pattern["context"]:
             return True, pattern["name"]
 
-        # context グループのうち少なくとも1つがマッチするか
         context_match = any(kw in text for kw in pattern["context"])
         if not context_match:
             continue
 
-        # required + context でマッチした場合、risk はオプション
-        # risk が存在し、かつマッチしない場合はスキップしない（required + context だけで判定）
-        # ただし、risk が存在し、マッチする場合は信頼度が上がる
-
-        # 全条件マッチ
         return True, pattern["name"]
 
     return False, None
@@ -368,11 +317,7 @@ def classify_by_keywords(
 
     category 0: 負面（詐欺・浮気・DV 等のトピック）
     category 1: 非負面
-
-    Args:
-        topic_match_threshold: トピックを負面と判定するシードキーワード一致数の閾値（デフォルト: 2）
     """
-    # valid_texts と topics から source_df に topic_id を割り当て
     result_df = source_df.copy()
     topic_id_list = list(topics)
 
@@ -383,7 +328,6 @@ def classify_by_keywords(
     for idx, tid in zip(valid_indices[:len(topic_id_list)], topic_id_list):
         result_df.at[idx, "topic_id"] = tid
 
-    # BERTopic 半監督モードで2カテゴリ分類用のモデルを訓練
     print("    BERTopic 半監督モードで2カテゴリ分類用モデルを訓練中...")
     tokenized_texts = [tokenize_with_fugashi(t) for t in valid_texts]
 
@@ -404,7 +348,6 @@ def classify_by_keywords(
 
     vectorizer = CountVectorizer()
 
-    # 2カテゴリ分類用の BERTopic モデル（シードトピック使用）
     category_model = BERTopic(
         embedding_model=None,
         umap_model=umap_model,
@@ -420,7 +363,6 @@ def classify_by_keywords(
         embeddings=embeddings,
     )
 
-    # シードトピックに対応するトピックIDを特定
     negative_topic_ids = set()
     all_seed_keywords = set()
     for seed_group in SEED_TOPICS:
@@ -440,50 +382,38 @@ def classify_by_keywords(
                     print(f"    負面トピック特定: Topic {topic_id} ({matches}キーワード一致)")
                     break
 
-    # カテゴリ分類（BERTopic半監督 + パターンマッチング + 直接キーワード）
     def assign_category(row):
-        # userInput のみをチェック（replyText は回答者の内容なので分類に含めない）
         user_text = str(row.get("userInput", ""))
-        reply_text = str(row.get("replyText", ""))
-        combined_text = f"{user_text} {reply_text}"
 
-        # 直接キーワードマッチング（userInput のみで判定）
-        if user_text and any(kw in user_text for kw in all_seed_keywords):
-            return 0
+        if not user_text.strip():
+            return 1
 
-        # パターンベース組み合わせ検出（userInput のみで判定）
+        # 1. パターンベース組み合わせ検出（最優先）
         is_pattern_match, pattern_name = check_pattern_combos(user_text)
         if is_pattern_match:
             return 0
 
-        # BERTopic半監督モデルによる分類
-        # source_df の valid_indices に対応する category_topics を取得
+        # 2. 直接キーワードマッチング
+        if any(kw in user_text for kw in all_seed_keywords):
+            return 0
+
+        # 3. BERTopic半監督モデルによる分類
         row_idx = result_df.index.get_loc(row.name)
         if row_idx < len(category_topics):
             tid = category_topics[row_idx]
             if tid in negative_topic_ids:
                 return 0
 
-        # トピックベース分類（元のトピックIDに基づく）
-        tid = row["topic_id"]
-        if pd.isna(tid) or tid is None:
-            return 1
-        tid = int(tid)
-        if tid == -1:
-            return 1
         return 1
 
     result_df["category"] = result_df.apply(assign_category, axis=1)
 
-    # data ディレクトリに保存
     data_dir = config.DATA_DIR
 
-    # 全件保存
-    all_path = data_dir / f"2category_all.csv"
+    all_path = data_dir / "2category_all.csv"
     result_df.to_csv(all_path, index=False, encoding="utf-8-sig")
     print(f"\n  → 2カテゴリ（全件）: {all_path}")
 
-    # interrupt / current に分割保存
     for reply_type, label in [("ReplyInterruptPersona", "interrupt"), ("ReplyCurrentPersona", "current")]:
         subset = result_df[result_df["replyType"] == reply_type]
         if subset.empty:
@@ -493,14 +423,12 @@ def classify_by_keywords(
         subset.to_csv(path, index=False, encoding="utf-8-sig")
         print(f"  → 2カテゴリ（{label}）: {path}  ({len(subset)}件)")
 
-    # マッチしたセッション例
     print(f"\n  ■ category 0 のセッション例:")
     matched = result_df[result_df["category"] == 0].head(15)
     for _, row in matched.iterrows():
         text = str(row["userInput"])[:60]
         print(f"    [Topic {row['topic_id']}] {text}...")
 
-    # サマリー
     cat_counts = result_df["category"].value_counts()
     print(f"\n  ■ サマリー:")
     print(f"    category 0（負面）:   {cat_counts.get(0, 0)}件")
@@ -510,17 +438,16 @@ def classify_by_keywords(
 # 主处理逻辑 / メイン処理
 if __name__ == "__main__":
     output_dir = config.DATA_DIR / "topic_modeling"
+    temp_dir = Path(__file__).parent.parent / "temp"
+    temp_dir.mkdir(parents=True, exist_ok=True)
 
-    # 加载数据 / データ読み込み
-    print("正在加载数据... / データ読み込み中...")
+    print("正在加载数据...")
     df_mochiko = pd.read_csv(config.DATA_DIR / "data_mochiko.csv")
     df_pen_sensei = pd.read_csv(config.DATA_DIR / "data_pen_sensei.csv")
 
     print(f"mochiko: {len(df_mochiko)} 行")
     print(f"pen_sensei: {len(df_pen_sensei)} 行")
 
-    # mochiko 的话题建模 / mochiko のトピックモデリング
-    # 用户输入 / ユーザー入力
     mochiko_input_texts = df_mochiko["userInput"].fillna("").tolist()
     run_topic_modeling(
         texts=mochiko_input_texts,
@@ -529,7 +456,6 @@ if __name__ == "__main__":
         output_dir=output_dir,
     )
 
-    # 机器人回复 / ボット応答
     mochiko_reply_texts = df_mochiko["replyText"].fillna("").tolist()
     run_topic_modeling(
         texts=mochiko_reply_texts,
@@ -538,8 +464,6 @@ if __name__ == "__main__":
         output_dir=output_dir,
     )
 
-    # pen_sensei 的话题建模 / pen_sensei のトピックモデリング
-    # 用户输入 / ユーザー入力
     pen_input_texts = df_pen_sensei["userInput"].fillna("").tolist()
     run_topic_modeling(
         texts=pen_input_texts,
@@ -548,7 +472,6 @@ if __name__ == "__main__":
         output_dir=output_dir,
     )
 
-    # 机器人回复 / ボット応答
     pen_reply_texts = df_pen_sensei["replyText"].fillna("").tolist()
     run_topic_modeling(
         texts=pen_reply_texts,
@@ -557,8 +480,7 @@ if __name__ == "__main__":
         output_dir=output_dir,
     )
 
-    # 合并两者用户输入进行话题建模 / 両者を結合したユーザー入力のトピックモデリング
-    print(f"  合并两者的用户输入进行话题建模 / 両者結合ユーザー入力のトピックモデリング")
+    print(f"  合并两者的用户输入进行话题建模")
     all_input_texts = mochiko_input_texts + pen_input_texts
     combined_source_df = pd.concat([df_mochiko, df_pen_sensei], ignore_index=True)
     run_topic_modeling(
@@ -569,5 +491,5 @@ if __name__ == "__main__":
         source_df=combined_source_df,
     )
 
-    print(f"  话题建模完成！ / トピックモデリング完了！")
-    print(f"  结果输出目录: {output_dir} / 結果出力先: {output_dir}")
+    print(f"  话题建模完成！")
+    print(f"  结果输出目录: {output_dir}")
