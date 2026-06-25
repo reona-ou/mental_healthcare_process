@@ -241,31 +241,25 @@ def run_pipeline(df_cat, cat_label, pca_dim, umap_dim, nn, md, mcs, ms, output_d
         margin=dict(l=60, r=60, t=100, b=60))
     fig_tsne.write_html(output_dir / f'category{cat_label}_tsne.html')
 
-    # レーダーチャート (replyType別 / 按replyType分类)
-    for rt in ['ReplyInterruptPersona', 'ReplyCurrentPersona']:
-        subset = df_valid[df_valid['replyType'] == rt]
-        if subset.empty:
-            continue
-        rt_label = 'interrupt' if rt == 'ReplyInterruptPersona' else 'current'
-
-        fig = make_subplots(rows=1, cols=2, specs=[[{"type": "polar"}, {"type": "polar"}]],
-                            horizontal_spacing=0.15)
-        for cl in sorted(subset['cluster'].unique()):
-            cl = int(cl)
-            c = cluster_centers.loc[cl]
-            color = cluster_colors[cl % len(cluster_colors)]
-            n_cl = len(subset[subset['cluster'] == cl])
-            for col_idx, vals in enumerate([
-                [c[f'input_{e}'] for e in emotion_categories],
-                [c[f'reply_{e}'] for e in emotion_categories]
-            ]):
-                fig.add_trace(go.Scatterpolar(
-                    r=vals + [vals[0]], theta=radar_categories, fill='toself',
-                    name=f'Cluster {cl} (n={n_cl})' if col_idx == 0 else f'Cluster {cl}',
-                    legendgroup=f'cl{cl}', line=dict(color=color), opacity=0.3,
-                    showlegend=(col_idx == 0)), row=1, col=col_idx + 1)
-        fig.update_layout(**make_radar_layout(f'Category {cat_label} — {rt_label.capitalize()} (n={len(subset)})'))
-        fig.write_html(output_dir / f'category{cat_label}_{rt_label}_radar.html')
+    # レーダーチャート (全体データ / 全体数据)
+    fig = make_subplots(rows=1, cols=2, specs=[[{"type": "polar"}, {"type": "polar"}]],
+                        horizontal_spacing=0.15)
+    for cl in sorted(df_valid['cluster'].unique()):
+        cl = int(cl)
+        c = cluster_centers.loc[cl]
+        color = cluster_colors[cl % len(cluster_colors)]
+        n_cl = len(df_valid[df_valid['cluster'] == cl])
+        for col_idx, vals in enumerate([
+            [c[f'input_{e}'] for e in emotion_categories],
+            [c[f'reply_{e}'] for e in emotion_categories]
+        ]):
+            fig.add_trace(go.Scatterpolar(
+                r=vals + [vals[0]], theta=radar_categories, fill='toself',
+                name=f'Cluster {cl} (n={n_cl})' if col_idx == 0 else f'Cluster {cl}',
+                legendgroup=f'cl{cl}', line=dict(color=color), opacity=0.3,
+                showlegend=(col_idx == 0)), row=1, col=col_idx + 1)
+    fig.update_layout(**make_radar_layout(f'Category {cat_label} — All Data (n={len(df_valid)})'))
+    fig.write_html(output_dir / f'category{cat_label}_radar.html')
 
     # 感情変化チャート / 情感变化图
     valid_clusters = sorted(df_valid['cluster'].unique())
@@ -330,125 +324,117 @@ def run_pipeline(df_cat, cat_label, pca_dim, umap_dim, nn, md, mcs, ms, output_d
         legend=dict(font=dict(size=10), x=0.5, y=-0.08, orientation='h', xanchor='center'))
     fig_rating.write_html(output_dir / f'category{cat_label}_rating_boxplot.html')
 
-    # 感情差分ジッタープロット + 柱状图 (replyType別 / 按replyType分类)
-    reply_type_configs = [
-        ('all', None, ''),
-        ('current', 'ReplyCurrentPersona', ' — Current Persona'),
-        ('interrupt', 'ReplyInterruptPersona', ' — Interrupt Persona'),
-    ]
-    for rt_key, rt_filter, rt_suffix in reply_type_configs:
-        df_rt = df_valid if rt_filter is None else df_valid[df_valid['replyType'] == rt_filter]
-        if df_rt.empty:
-            continue
-        n_cl_rt = len(df_rt['cluster'].unique())
+    # 感情差分ジッタープロット + 柱状图 (全体データ / 全体数据)
+    valid_clusters = sorted(df_valid['cluster'].unique())
+    n_cl_rt = len(valid_clusters)
 
-        # --- Jitter Plot ---
-        fig_jitter = make_subplots(
-            rows=1, cols=n_cl_rt,
-            subplot_titles=[f'Cluster {cl} (n={len(df_rt[df_rt["cluster"]==cl])})'
-                            for cl in sorted(df_rt['cluster'].unique())],
-            horizontal_spacing=0.06
-        )
-        all_diffs = []
-        for ci, cl in enumerate(sorted(df_rt['cluster'].unique())):
-            subset = df_rt[df_rt['cluster'] == cl]
-            color = cluster_colors[cl % len(cluster_colors)]
-            means, mins, maxs = [], [], []
-            for ei, emo in enumerate(emotion_categories):
-                diffs = subset[f'reply_{emo}'].values - subset[f'input_{emo}'].values
-                all_diffs.extend(diffs)
-                jitter_x = np.full(len(diffs), ei) + np.random.uniform(-0.15, 0.15, len(diffs))
-                fig_jitter.add_trace(go.Scatter(
-                    x=jitter_x, y=diffs, mode='markers',
-                    marker=dict(size=4, color=color, opacity=0.4),
-                    name=f'Cluster {cl}' if ei == 0 else None,
-                    legendgroup=f'cl{cl}', showlegend=(ei == 0),
-                    hovertext=[f'{emo}: {d:.3f}' for d in diffs], hoverinfo='text'
-                ), row=1, col=ci + 1)
-                means.append(np.mean(diffs))
-                mins.append(np.min(diffs))
-                maxs.append(np.max(diffs))
-            stat_configs = [
-                (means, 'solid', 'Mean', True),
-                (mins, 'dot', 'Min', False),
-                (maxs, 'dash', 'Max', False),
-            ]
-            for stat_vals, dash, lbl, show_leg in stat_configs:
-                fig_jitter.add_trace(go.Scatter(
-                    x=list(range(len(emotion_categories))), y=stat_vals,
-                    mode='lines+markers', marker=dict(size=5),
-                    line=dict(color=color, width=2, dash=dash),
-                    name=f'C{cl} {lbl}',
-                    legendgroup=f'cl{cl}', showlegend=show_leg
-                ), row=1, col=ci + 1)
-        jitter_bound = np.ceil(max(abs(np.min(all_diffs)), abs(np.max(all_diffs))) * 10) / 10
-        fig_jitter.update_xaxes(
-            tickvals=list(range(len(emotion_categories))),
-            ticktext=emotion_labels, tickangle=-45
-        )
-        for ci in range(n_cl_rt):
-            fig_jitter.add_hline(y=0, line_dash='dash', line_color='gray',
-                                 opacity=0.5, row=1, col=ci + 1)
-        fig_jitter.update_layout(
-            title=dict(text=f'Category {cat_label}{rt_suffix} — 感情差分ジッタープロット',
-                       x=0.5, font=dict(size=18)),
-            yaxis_title='差分値 (reply - input)',
-            width=max(400 * n_cl_rt, 800), height=600,
-            paper_bgcolor='white', plot_bgcolor='white',
-            margin=dict(l=60, r=60, t=100, b=100),
-            legend=dict(font=dict(size=10), x=0.5, y=-0.2, orientation='h', xanchor='center')
-        )
-        for ci in range(n_cl_rt):
-            axis_key = f'yaxis{ci + 1}' if ci > 0 else 'yaxis'
-            fig_jitter.update_layout(**{axis_key: dict(range=[-jitter_bound, jitter_bound])})
-        fig_jitter.write_html(output_dir / f'category{cat_label}_jitter_diff_{rt_key}.html')
+    # --- Jitter Plot ---
+    fig_jitter = make_subplots(
+        rows=1, cols=n_cl_rt,
+        subplot_titles=[f'Cluster {cl} (n={len(df_valid[df_valid["cluster"]==cl])})'
+                        for cl in valid_clusters],
+        horizontal_spacing=0.06
+    )
+    all_diffs = []
+    for ci, cl in enumerate(valid_clusters):
+        subset = df_valid[df_valid['cluster'] == cl]
+        color = cluster_colors[cl % len(cluster_colors)]
+        means, mins, maxs = [], [], []
+        for ei, emo in enumerate(emotion_categories):
+            diffs = subset[f'reply_{emo}'].values - subset[f'input_{emo}'].values
+            all_diffs.extend(diffs)
+            jitter_x = np.full(len(diffs), ei) + np.random.uniform(-0.15, 0.15, len(diffs))
+            fig_jitter.add_trace(go.Scatter(
+                x=jitter_x, y=diffs, mode='markers',
+                marker=dict(size=4, color=color, opacity=0.4),
+                name=f'Cluster {cl}' if ei == 0 else None,
+                legendgroup=f'cl{cl}', showlegend=(ei == 0),
+                hovertext=[f'{emo}: {d:.3f}' for d in diffs], hoverinfo='text'
+            ), row=1, col=ci + 1)
+            means.append(np.mean(diffs))
+            mins.append(np.min(diffs))
+            maxs.append(np.max(diffs))
+        stat_configs = [
+            (means, 'solid', 'Mean', True),
+            (mins, 'dot', 'Min', False),
+            (maxs, 'dash', 'Max', False),
+        ]
+        for stat_vals, dash, lbl, show_leg in stat_configs:
+            fig_jitter.add_trace(go.Scatter(
+                x=list(range(len(emotion_categories))), y=stat_vals,
+                mode='lines+markers', marker=dict(size=5),
+                line=dict(color=color, width=2, dash=dash),
+                name=f'C{cl} {lbl}',
+                legendgroup=f'cl{cl}', showlegend=show_leg
+            ), row=1, col=ci + 1)
+    jitter_bound = np.ceil(max(abs(np.min(all_diffs)), abs(np.max(all_diffs))) * 10) / 10
+    fig_jitter.update_xaxes(
+        tickvals=list(range(len(emotion_categories))),
+        ticktext=emotion_labels, tickangle=-45
+    )
+    for ci in range(n_cl_rt):
+        fig_jitter.add_hline(y=0, line_dash='dash', line_color='gray',
+                             opacity=0.5, row=1, col=ci + 1)
+    fig_jitter.update_layout(
+        title=dict(text=f'Category {cat_label} — 感情差分ジッタープロット',
+                   x=0.5, font=dict(size=18)),
+        yaxis_title='差分値 (reply - input)',
+        width=max(400 * n_cl_rt, 800), height=600,
+        paper_bgcolor='white', plot_bgcolor='white',
+        margin=dict(l=60, r=60, t=100, b=100),
+        legend=dict(font=dict(size=10), x=0.5, y=-0.2, orientation='h', xanchor='center')
+    )
+    for ci in range(n_cl_rt):
+        axis_key = f'yaxis{ci + 1}' if ci > 0 else 'yaxis'
+        fig_jitter.update_layout(**{axis_key: dict(range=[-jitter_bound, jitter_bound])})
+    fig_jitter.write_html(output_dir / f'category{cat_label}_jitter_diff.html')
 
-        # --- Stats Bar Chart ---
-        fig_stats = make_subplots(
-            rows=2, cols=2,
-            subplot_titles=['Mean', 'Max', 'Min', 'Standard Deviation'],
-            horizontal_spacing=0.1, vertical_spacing=0.15
-        )
-        stats_all = []
-        for cl in sorted(df_rt['cluster'].unique()):
-            subset = df_rt[df_rt['cluster'] == cl]
-            color = cluster_colors[cl % len(cluster_colors)]
-            stat_means, stat_maxs, stat_mins, stat_sds = [], [], [], []
-            for emo in emotion_categories:
-                diffs = subset[f'reply_{emo}'].values - subset[f'input_{emo}'].values
-                stat_means.append(np.mean(diffs))
-                stat_maxs.append(np.max(diffs))
-                stat_mins.append(np.min(diffs))
-                stat_sds.append(np.std(diffs))
-            stats_all.extend(stat_means + stat_maxs + stat_mins + stat_sds)
-            for vals, row, col, stat_name in [
-                (stat_means, 1, 1, 'mean'), (stat_maxs, 1, 2, 'max'),
-                (stat_mins, 2, 1, 'min'), (stat_sds, 2, 2, 'sd'),
-            ]:
-                fig_stats.add_trace(go.Bar(
-                    x=emotion_labels, y=vals, marker_color=color,
-                    name=f'Cluster {cl}', legendgroup=f'cl{cl}',
-                    showlegend=(stat_name == 'mean')
-                ), row=row, col=col)
-        stats_bound = np.ceil(max(abs(np.min(stats_all)), abs(np.max(stats_all))) * 10) / 10
-        for r, c in [(1, 1), (1, 2), (2, 1), (2, 2)]:
-            fig_stats.add_hline(y=0, line_dash='dash', line_color='gray',
-                                opacity=0.4, row=r, col=c)
-        fig_stats.update_layout(
-            title=dict(text=f'Category {cat_label}{rt_suffix} — クラスタ別統計比較',
-                       x=0.5, font=dict(size=18)),
-            yaxis_title='差分値', yaxis3_title='差分値',
-            yaxis=dict(range=[-stats_bound, stats_bound]),
-            yaxis2=dict(range=[-stats_bound, stats_bound]),
-            yaxis3=dict(range=[-stats_bound, stats_bound]),
-            yaxis4=dict(range=[-stats_bound, stats_bound]),
-            barmode='group',
-            width=1200, height=900,
-            paper_bgcolor='white', plot_bgcolor='white',
-            margin=dict(l=60, r=60, t=100, b=60),
-            legend=dict(font=dict(size=10), x=0.5, y=-0.05, orientation='h', xanchor='center')
-        )
-        fig_stats.write_html(output_dir / f'category{cat_label}_cluster_stats_{rt_key}.html')
+    # --- Stats Bar Chart ---
+    fig_stats = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=['Mean', 'Max', 'Min', 'Standard Deviation'],
+        horizontal_spacing=0.1, vertical_spacing=0.15
+    )
+    stats_all = []
+    for cl in valid_clusters:
+        subset = df_valid[df_valid['cluster'] == cl]
+        color = cluster_colors[cl % len(cluster_colors)]
+        stat_means, stat_maxs, stat_mins, stat_sds = [], [], [], []
+        for emo in emotion_categories:
+            diffs = subset[f'reply_{emo}'].values - subset[f'input_{emo}'].values
+            stat_means.append(np.mean(diffs))
+            stat_maxs.append(np.max(diffs))
+            stat_mins.append(np.min(diffs))
+            stat_sds.append(np.std(diffs))
+        stats_all.extend(stat_means + stat_maxs + stat_mins + stat_sds)
+        for vals, row, col, stat_name in [
+            (stat_means, 1, 1, 'mean'), (stat_maxs, 1, 2, 'max'),
+            (stat_mins, 2, 1, 'min'), (stat_sds, 2, 2, 'sd'),
+        ]:
+            fig_stats.add_trace(go.Bar(
+                x=emotion_labels, y=vals, marker_color=color,
+                name=f'Cluster {cl}', legendgroup=f'cl{cl}',
+                showlegend=(stat_name == 'mean')
+            ), row=row, col=col)
+    stats_bound = np.ceil(max(abs(np.min(stats_all)), abs(np.max(stats_all))) * 10) / 10
+    for r, c in [(1, 1), (1, 2), (2, 1), (2, 2)]:
+        fig_stats.add_hline(y=0, line_dash='dash', line_color='gray',
+                            opacity=0.4, row=r, col=c)
+    fig_stats.update_layout(
+        title=dict(text=f'Category {cat_label} — クラスタ別統計比較',
+                   x=0.5, font=dict(size=18)),
+        yaxis_title='差分値', yaxis3_title='差分値',
+        yaxis=dict(range=[-stats_bound, stats_bound]),
+        yaxis2=dict(range=[-stats_bound, stats_bound]),
+        yaxis3=dict(range=[-stats_bound, stats_bound]),
+        yaxis4=dict(range=[-stats_bound, stats_bound]),
+        barmode='group',
+        width=1200, height=900,
+        paper_bgcolor='white', plot_bgcolor='white',
+        margin=dict(l=60, r=60, t=100, b=60),
+        legend=dict(font=dict(size=10), x=0.5, y=-0.05, orientation='h', xanchor='center')
+    )
+    fig_stats.write_html(output_dir / f'category{cat_label}_cluster_stats.html')
 
     # 結果保存 / 结果保存
     df_cat.to_csv(output_dir / f'category{cat_label}_clusters.csv', index=False, encoding='utf-8-sig')

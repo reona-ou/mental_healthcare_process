@@ -158,27 +158,16 @@ def build_conversations(df):
         for emotion in EMOTION_LABELS.keys():
             conv[f'input_{emotion}'] = first.get(f'input_{emotion}', np.nan)
 
-        # ReplyCurrentPersona（当前角色回复）
-        # ReplyCurrentPersona（現在のペルソナへの返信）
-        rcp = group[group['replyType'] == 'ReplyCurrentPersona']
+        # Reply 情感分数（整体结果，优先使用ReplyInterruptPersona）
+        # Reply 感情スコア（全体結果、ReplyInterruptPersonaを優先使用）
+        # 如果同时存在ReplyCurrentPersona和ReplyInterruptPersona，只保留ReplyInterruptPersona
+        # ReplyCurrentPersonaとReplyInterruptPersonaが同時に存在する場合、ReplyInterruptPersonaのみを保持
+        reply_data = group.iloc[-1]  # 默认使用最后一条
         for emotion in EMOTION_LABELS.keys():
-            if len(rcp) > 0:
-                conv[f'rcp_{emotion}'] = rcp.iloc[0].get(f'reply_{emotion}', np.nan)
-            else:
-                conv[f'rcp_{emotion}'] = np.nan
-        conv['rcp_persona'] = rcp.iloc[0]['persona'] if len(rcp) > 0 else None
-        conv['current'] = rcp.iloc[0]['replyText'] if len(rcp) > 0 else None
-
-        # ReplyInterruptPersona（打断角色回复）
-        # ReplyInterruptPersona（割り込みペルソナへの返信）
-        rip = group[group['replyType'] == 'ReplyInterruptPersona']
-        for emotion in EMOTION_LABELS.keys():
-            if len(rip) > 0:
-                conv[f'rip_{emotion}'] = rip.iloc[0].get(f'reply_{emotion}', np.nan)
-            else:
-                conv[f'rip_{emotion}'] = np.nan
-        conv['rip_persona'] = rip.iloc[0]['persona'] if len(rip) > 0 else None
-        conv['interrupt'] = rip.iloc[0]['replyText'] if len(rip) > 0 else None
+            conv[f'reply_{emotion}'] = reply_data.get(f'reply_{emotion}', np.nan)
+        conv['reply_persona'] = reply_data['persona']
+        conv['replyText'] = reply_data['replyText']
+        conv['replyType'] = reply_data['replyType']
 
         conversations.append(conv)
 
@@ -201,12 +190,10 @@ def compute_user_statistics(conv_df):
             'userId': uid,
             'conversations': len(group),
         }
-        # 各情感的平均分数 / 各感情の平均スコア
+        # 各情感的平均分数 / 各感情の平均スコア（全体結果）
         for emotion in EMOTION_LABELS.keys():
-            rcp_scores = group[f'rcp_{emotion}'].dropna()
-            rip_scores = group[f'rip_{emotion}'].dropna()
-            stats[f'rcp_{emotion}_mean'] = rcp_scores.mean() if len(rcp_scores) > 0 else np.nan
-            stats[f'rip_{emotion}_mean'] = rip_scores.mean() if len(rip_scores) > 0 else np.nan
+            reply_scores = group[f'reply_{emotion}'].dropna()
+            stats[f'reply_{emotion}_mean'] = reply_scores.mean() if len(reply_scores) > 0 else np.nan
         user_stats.append(stats)
 
     stats_df = pd.DataFrame(user_stats)
@@ -218,11 +205,11 @@ def compute_user_statistics(conv_df):
 def create_charts(conv_df, output_dirname='charts_wrime'):
     """
     每个用户两张子图：
-    上图: ReplyCurrentPersona 8种情感折线 + ReplyInterruptPersona 8种情感柱状（标明persona）
+    上图: Reply 8种情感折线（标明persona）
     下图: Input 8种情感折線
 
     各ユーザーに2つのサブプロット：
-    上: ReplyCurrentPersona 8感情の折れ線 + ReplyInterruptPersona 8感情の棒グラフ（ペルソナ表示）
+    上: Reply 8感情の折れ線（ペルソナ表示）
     下: Input 8感情の折れ線
     """
     print(f"\n正在生成图表... / グラフを生成中...")
@@ -230,7 +217,7 @@ def create_charts(conv_df, output_dirname='charts_wrime'):
     charts_dir = SENTIMENT_DIR / output_dirname
     charts_dir.mkdir(exist_ok=True)
 
-    # persona 颜色用于柱状 / personaの色は棒グラフに使用
+    # persona 颜色用于标记 / personaの色はマーカーに使用
     users = conv_df['userId'].unique()
     generated_files = []
 
@@ -251,25 +238,22 @@ def create_charts(conv_df, output_dirname='charts_wrime'):
         }
 
         fig = make_subplots(
-            rows=3, cols=1,
+            rows=2, cols=1,
             subplot_titles=(
-                '<br>ReplyCurrentPersona',
-                '<br>User Input:',
-                '<br>ReplyInterruptPersona'
+                '<br>Reply',
+                '<br>User Input:'
             ),
-            vertical_spacing=0.10,
-            row_heights=[0.35, 0.35, 0.30]
+            vertical_spacing=0.12,
+            row_heights=[0.5, 0.5]
         )
 
-
-
-        # RCP 8条情感折线，marker与折线关联（lines+markers模式）
+        # Reply 8条情感折线，marker与折线关联（lines+markers模式）
         # 通过为每个点设置不同的marker symbol来区分persona
-        # RCP 8感情の折れ線、マーカーと折れ線を関連付け（lines+markersモード）
+        # Reply 8感情の折れ線、マーカーと折れ線を関連付け（lines+markersモード）
         # 各ポイントに異なるマーカーシンボルを設定してペルソナを区別
-        persona_list_for_markers = user_conv['rcp_persona'].tolist()
+        persona_list_for_markers = user_conv['reply_persona'].tolist()
         for emotion in EMOTION_LABELS.keys():
-            rcp_scores = user_conv[f'rcp_{emotion}'].tolist()
+            reply_scores = user_conv[f'reply_{emotion}'].tolist()
             # 根据persona为每个点设置对应的marker symbol
             # ペルソナに応じて各ポイントのマーカーシンボルを設定
             symbols = []
@@ -280,7 +264,7 @@ def create_charts(conv_df, output_dirname='charts_wrime'):
                     symbols.append('circle')  # 默认圆形 / デフォルトは円形
             fig.add_trace(
                 go.Scatter(
-                    x=x_positions, y=rcp_scores,
+                    x=x_positions, y=reply_scores,
                     mode='lines+markers',
                     name=f'{EMOTION_LABELS[emotion]}',
                     line=dict(color=EMOTION_COLORS[emotion], width=2),
@@ -290,69 +274,19 @@ def create_charts(conv_df, output_dirname='charts_wrime'):
                         color=EMOTION_COLORS[emotion],
                         line=dict(width=1, color='white')
                     ),
-                    legendgroup=f'rcp_{emotion}',
+                    legendgroup=f'reply_{emotion}',
                     showlegend=True,
                     hovertemplate=[
                         f'{persona_list_for_markers[i]} | {EMOTION_LABELS[emotion]}: %{{y:.4f}}<extra></extra>'
-                        for i in range(len(rcp_scores))
+                        for i in range(len(reply_scores))
                     ]
                 ),
                 row=1, col=1
             )
 
-
         annotations = []
 
-        # RIP 柱状（独立第二子图，按emotion颜色上色）
-        # RIP 棒グラフ（独立したサブプロット、感情の色で着色）
-        rip_positions = []
-        for j, (_, row) in enumerate(user_conv.iterrows()):
-            if pd.notna(row.get(f'rip_joy', np.nan)):
-                rip_positions.append(j)
-
-        if rip_positions:
-            n_emotions = len(EMOTION_LABELS)
-            bar_width = 0.6 / n_emotions
-            emotion_list = list(EMOTION_LABELS.keys())
-
-            for ei, emotion in enumerate(emotion_list):
-                rip_x_list = []
-                rip_y_list = []
-                rip_persona_list = []
-
-                for j in rip_positions:
-                    row = user_conv.iloc[j]
-                    score = row.get(f'rip_{emotion}', np.nan)
-                    if pd.notna(score):
-                        offset = (ei - n_emotions / 2 + 0.5) * bar_width
-                        rip_x_list.append(x_positions[j] + offset)
-                        rip_y_list.append(score)
-                        rip_persona_list.append(row.get('rip_persona', '?'))
-
-                if rip_x_list:
-                    fig.add_trace(
-                        go.Bar(
-                            x=rip_x_list,
-                            y=rip_y_list,
-                            marker_color=EMOTION_COLORS[emotion],
-                            opacity=0.75,
-                            name=f'{EMOTION_LABELS[emotion]} (Interrupt)',
-                            legendgroup=f'rip_{emotion}',
-                            showlegend=True,
-                            textposition='inside',
-                            textfont=dict(size=8, color='white'),
-                            width=bar_width * 0.9,
-                            hovertemplate=[
-                                f'{EMOTION_LABELS[emotion]} ({p})<br>Score: %{{y:.4f}}<extra></extra>'
-                                for p in rip_persona_list
-                            ]
-                        ),
-                        row=3, col=1
-                    )
-
-
-        # 中间图：Input 折线 / 中央: Input 折れ線
-
+        # Input 折线 / Input 折れ線
         for emotion in EMOTION_LABELS.keys():
             input_scores = user_conv[f'input_{emotion}'].tolist()
             fig.add_trace(
@@ -391,7 +325,7 @@ def create_charts(conv_df, output_dirname='charts_wrime'):
                 text=f'User {short_id}<br>',
                 x=0.5, font=dict(size=15)
             ),
-            height=1400,
+            height=1000,
             width=max(1200, n * 100 + 300),
             template='plotly_white',
             barmode='group',
@@ -403,38 +337,26 @@ def create_charts(conv_df, output_dirname='charts_wrime'):
                 x=0.5,
                 font=dict(size=10)
             ),
-            margin=dict(l=80, r=80, t=200, b=250),
+            margin=dict(l=80, r=80, t=150, b=200),
             annotations=annotations,
         )
 
-        # Row 1 (RCP折线): x轴刻度旁显示rcp_persona
-        # Row 1（RCP折れ線）: x軸の目盛り横にrcp_personaを表示
-        rcp_ticktext = []
+        # Row 1 (Reply折线): x轴刻度旁显示reply_persona
+        # Row 1（Reply折れ線）: x軸の目盛り横にreply_personaを表示
+        reply_ticktext = []
         for j in range(n):
-            persona = user_conv.iloc[j].get('rcp_persona', '')
+            persona = user_conv.iloc[j].get('reply_persona', '')
             if persona:
-                rcp_ticktext.append(f"{j+1}<br><span style='font-size:8px;color:#666'>{persona}</span>")
+                reply_ticktext.append(f"{j+1}<br><span style='font-size:8px;color:#666'>{persona}</span>")
             else:
-                rcp_ticktext.append(str(j+1))
-        fig.update_xaxes(title_text='对话序号/やり取り番号', row=1, col=1, tickvals=x_positions, ticktext=rcp_ticktext, range=[0.3, n + 0.7])
+                reply_ticktext.append(str(j+1))
+        fig.update_xaxes(title_text='对话序号/やり取り番号', row=1, col=1, tickvals=x_positions, ticktext=reply_ticktext, range=[0.3, n + 0.7])
         fig.update_yaxes(title_text='情感分数/点数', row=1, col=1, range=y_range, showgrid=True, gridcolor='#f0f0f0')
 
         # Row 2 (Input折线): x轴普通刻度
         # Row 2（Input折れ線）: x軸は通常の目盛り
         fig.update_xaxes(title_text='对话序号/やり取り番号', row=2, col=1, tickvals=x_positions, range=[0.3, n + 0.7])
         fig.update_yaxes(title_text='情感分数/点数', row=2, col=1, range=y_range, showgrid=True, gridcolor='#f0f0f0')
-
-        # Row 3 (RIP柱状): x轴刻度旁显示rip_persona
-        # Row 3（RIP棒グラフ）: x軸の目盛り横にrip_personaを表示
-        rip_ticktext = []
-        for j in range(n):
-            persona = user_conv.iloc[j].get('rip_persona', '')
-            if pd.notna(persona) and persona:
-                rip_ticktext.append(f"{j+1}<br><span style='font-size:8px;color:#666'>{persona}</span>")
-            else:
-                rip_ticktext.append(str(j+1))
-        fig.update_xaxes(title_text='对话序号/やり取り番号', row=3, col=1, tickvals=x_positions, ticktext=rip_ticktext, range=[0.3, n + 0.7])
-        fig.update_yaxes(title_text='情感分数/点数', row=3, col=1, range=y_range, showgrid=True, gridcolor='#f0f0f0')
 
         output_path = charts_dir / f'user_{short_id}.html'
         fig.write_html(output_path)

@@ -412,16 +412,7 @@ def classify_by_keywords(
 
     all_path = data_dir / "2category_all.csv"
     result_df.to_csv(all_path, index=False, encoding="utf-8-sig")
-    print(f"\n  → 2カテゴリ（全件）: {all_path}")
-
-    for reply_type, label in [("ReplyInterruptPersona", "interrupt"), ("ReplyCurrentPersona", "current")]:
-        subset = result_df[result_df["replyType"] == reply_type]
-        if subset.empty:
-            print(f"  → {label}: データなし、スキップ")
-            continue
-        path = data_dir / f"2category_{label}.csv"
-        subset.to_csv(path, index=False, encoding="utf-8-sig")
-        print(f"  → 2カテゴリ（{label}）: {path}  ({len(subset)}件)")
+    print(f"\n  → 2カテゴリ（全件）: {all_path}  ({len(result_df)}件)")
 
     print(f"\n  ■ category 0 のセッション例:")
     matched = result_df[result_df["category"] == 0].head(15)

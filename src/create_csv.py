@@ -104,13 +104,13 @@ for i in range(len(df_chat)):
         # current_reply 已到，且（无需中断 或 中断回复也已到） / current_reply到着済み かつ（割り込み不要 or 割り込み返信も到着済み）
         if (s['current_reply'] is not None) and \
                 ((not has_interrupt_needed) or (s['interrupt_reply'] is not None)):
-            # 追加当前人格回复记录 / 現在ペルソナの返信レコードを追加
-            processed_rows.append(create_record(s, s['current_reply'], session_count))
-            session_count += 1
-            # 如果存在中断回复，也作为独立记录追加 / 割り込み返信があれば別レコードとして追加
+            # 如果同时存在interrupt_reply，只保留interrupt_reply（优先使用中断回复）
+            # 割り込み返信が存在する場合、interrupt_replyのみを保持（割り込み返信を優先）
             if s['interrupt_reply'] is not None:
                 processed_rows.append(create_record(s, s['interrupt_reply'], session_count))
-                session_count += 1
+            else:
+                processed_rows.append(create_record(s, s['current_reply'], session_count))
+            session_count += 1
             keys_to_delete.append(p_id)
 
     # 从缓冲区删除已完成的 session / 完了済みセッションをバッファから削除

@@ -28,6 +28,8 @@ results = {}
 print("\n[PyTorch & CUDA]")
 import torch
 results['torch'] = test_library('torch')
+print(torch.__version__)
+print(torch.version.cuda)
 print(f"  CUDA可用性 / CUDA利用可能: {torch.cuda.is_available()}")
 if torch.cuda.is_available():
     print(f"  GPU: {torch.cuda.get_device_name(0)}")
