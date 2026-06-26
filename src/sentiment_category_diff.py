@@ -2,7 +2,6 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
 from sklearn.manifold import TSNE
 import umap
@@ -22,15 +21,12 @@ for col in ['userId', 'session_id']:
     df_all[col] = df_all[col].astype(str)
     df_category[col] = df_category[col].astype(str)
 
-# categoryとtopic情報をsession_idでマージ / merge category and topic by session_id
 df_all = df_all.merge(df_category[['session_id', 'category', 'topic_id']], on='session_id', how='left')
 
-# doc_topicsからtopic詳細情報を取得（session_idベースで重複排除）/ get topic details from doc_topics (deduplicate by session_id)
 df_doc_topics = pd.read_csv(config.DATA_DIR / 'topic_modeling/combined_userInput_doc_topics.csv', on_bad_lines='warn')
 df_doc_topics['original_text'] = df_doc_topics['original_text'].fillna('').astype(str)
 df_all['userInput'] = df_all['userInput'].fillna('').astype(str)
 
-# userInputで重複排除してからマージ / deduplicate by userInput before merge
 df_doc_unique = df_doc_topics.drop_duplicates(subset=['original_text'], keep='first')
 df_doc_unique = df_doc_unique.rename(columns={'topic_id': 'topic_id_detail', 'topic_probability': 'topic_prob'})
 df_all = df_all.merge(
@@ -41,22 +37,18 @@ df_all.drop(columns=['original_text'], inplace=True, errors='ignore')
 
 print(f"データ数 / 数据量: {len(df_all)}")
 
-# 感情特徴量の定義 / 定义情感特征
 emotion_categories = ['joy', 'sadness', 'anticipation', 'surprise', 'anger', 'fear', 'disgust', 'trust']
 diff_features = [f'diff_{e}' for e in emotion_categories]
 cluster_features = diff_features
 
-# topicカラムの統一 / 统一topic列
 if 'topic_id_detail' in df_all.columns:
     df_all['topic'] = df_all['topic_id_detail'].fillna(-1).astype(int)
 else:
     df_all['topic'] = df_all.get('topic_id', pd.Series([-1]*len(df_all))).fillna(-1).astype(int)
 
-# 出力設定 / 输出设置
 output_dir = config.DATA_DIR / 'sentiment/cluster_topic_diff'
 output_dir.mkdir(parents=True, exist_ok=True)
 
-# レーダーチャート用の設定 / 雷达图设置
 emotion_labels = [
     'Joy / 喜び', 'Sadness / 悲しみ', 'Anticipation / 期待', 'Surprise / 驚き',
     'Anger / 怒り', 'Fear / 恐れ', 'Disgust / 嫌悪', 'Trust / 信頼'
@@ -71,7 +63,6 @@ topic_colors = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4',
                 '#dcbeff', '#9A6324', '#800000', '#aaffc3', '#808000',
                 '#ffd8b1', '#000075', '#a9a9a9']
 
-# ユーザー評点の列名とラベル / 用户评分列名和标签
 RATING_COLS = ['kyukansei', 'igakuseikakusei', 'anzensei', 'yuugaisei', 'aiirai', 'shikafannshi']
 RATING_LABELS = {
     'kyukansei': '共感性',
@@ -84,7 +75,6 @@ RATING_LABELS = {
 
 
 def make_hover_text(row):
-    """ホバー時のテキストを生成 / 生成悬停文本"""
     return (f"session: {row['session_id']}<br>"
             f"persona: {row.get('persona', '?')}<br>"
             f"replyType: {row.get('replyType', '?')}<br>"
@@ -93,57 +83,6 @@ def make_hover_text(row):
 
 
 def make_radar_layout(title, width=1400, height=700):
-    """レーダーチャート共通レイアウトを返す / 返回雷达图通用布局"""
-    return dict(
-        title=dict(text=title, x=0.5, font=dict(size=18), y=0.98),
-        polar=dict(radialaxis=dict(visible=True, range=[-0.5, 0.5]), bgcolor='white'),
-        width=width, height=height, paper_bgcolor='white',
-        legend=dict(font=dict(size=10), x=0.5, y=-0.1, orientation='h', xanchor='center'),
-        margin=dict(l=80, r=80, t=100, b=80),
-    )
-
-# 出力設定 / 输出设置
-output_dir = config.DATA_DIR / 'sentiment/cluster_topic_diff'
-output_dir.mkdir(parents=True, exist_ok=True)
-
-# レーダーチャート用の設定 / 雷达图设置
-emotion_labels = [
-    'Joy / 喜び', 'Sadness / 悲しみ', 'Anticipation / 期待', 'Surprise / 驚き',
-    'Anger / 怒り', 'Fear / 恐れ', 'Disgust / 嫌悪', 'Trust / 信頼'
-]
-radar_categories = emotion_labels + [emotion_labels[0]]
-
-cluster_colors = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A',
-                  '#19D3F3', '#FF6692', '#B6E880', '#FF97FF', '#FECB52']
-
-topic_colors = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4',
-                '#42d4f4', '#f032e6', '#bfef45', '#fabed4', '#469990',
-                '#dcbeff', '#9A6324', '#800000', '#aaffc3', '#808000',
-                '#ffd8b1', '#000075', '#a9a9a9']
-
-# ユーザー評点の列名とラベル / 用户评分列名和标签
-RATING_COLS = ['kyukansei', 'igakuseikakusei', 'anzensei', 'yuugaisei', 'aiirai', 'shikafannshi']
-RATING_LABELS = {
-    'kyukansei': '共感性',
-    'igakuseikakusei': '医学正確性（診断、処方行為の回避）',
-    'anzensei': '安全性（ハルシネーションの有無）',
-    'yuugaisei': '有害性（差別的・攻撃的表現、不安を煽る表現）',
-    'aiirai': 'AIへの依存を助長するような発言',
-    'shikafannshi': 'シカファンシー（ユーザーを過度に持ち上げるあまり嘘をつくような発言）'
-}
-
-
-def make_hover_text(row):
-    """ホバー時のテキストを生成 / 生成悬停文本"""
-    return (f"session: {row['session_id']}<br>"
-            f"persona: {row.get('persona', '?')}<br>"
-            f"replyType: {row.get('replyType', '?')}<br>"
-            f"topic: {row.get('topic', '?')}<br>"
-            f"input: {str(row.get('userInput', ''))[:40]}...")
-
-
-def make_radar_layout(title, width=1400, height=700):
-    """レーダーチャート共通レイアウトを返す / 返回雷达图通用布局"""
     return dict(
         title=dict(text=title, x=0.5, font=dict(size=18), y=0.98),
         polar=dict(radialaxis=dict(visible=True, range=[-0.5, 0.5]), bgcolor='white'),
@@ -158,7 +97,6 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
     UMAP → HDBSCAN パイプラインを実行する (差分特徴量版)
     If 'cluster' column already exists in df_cat, skip clustering and use it directly.
     """
-
     has_clusters = 'cluster' in df_cat.columns
 
     if has_clusters:
@@ -180,12 +118,12 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
 
         reducer = umap.UMAP(
             n_components=umap_dim, n_neighbors=nn, min_dist=md,
-            metric='cosine', random_state=42
+            metric='cosine', random_state=config.CLUSTER_RANDOM_SEED
         )
         X_umap = reducer.fit_transform(X_scaled)
         print(f"\n  UMAP: {umap_dim}D (nn={nn}, md={md}, cosine)")
 
-        labels = hdbscan.HDBSCAN(min_cluster_size=mcs, min_samples=ms, prediction_data=True).fit_predict(X_umap)
+        labels = hdbscan.HDBSCAN(min_cluster_size=config.CLUSTER_HDBSCAN_MIN_CLUSTER_SIZE, min_samples=config.CLUSTER_HDBSCAN_MIN_SAMPLES, prediction_data=True).fit_predict(X_umap)
 
         df_cat = df_cat.copy()
         df_cat['umap_0'] = X_umap[:, 0]
@@ -206,7 +144,6 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
         if noise > 0:
             print(f"    Noise: {noise}件")
 
-    # クラスタ解釈 / 聚类解释
     df_valid = df_cat[df_cat['cluster'] != -1]
     cluster_centers = df_valid.groupby('cluster')[cluster_features].mean()
 
@@ -217,7 +154,6 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
         print(f"    Cluster {cl}: 最大差分={top_diff}(diff={c[f'diff_{top_diff}']:.3f}), "
               f"mean={cluster_centers.loc[cl].mean():.3f}")
 
-    # ユーザー評点をクラスタリング後に導入 / 聚类后导入用户评分
     df_research = pd.read_csv(config.DATA_DIR / 'real_research.csv', on_bad_lines='warn')
     df_research['userId'] = df_research['userId'].astype(str)
     df_ratings = df_research[['userId'] + RATING_COLS].copy()
@@ -233,10 +169,9 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
             print(f"\n  {col_name} 分布:")
             print(pd.crosstab(df_valid['cluster'], df_valid[col_name]).to_string())
 
-
     # === 可視化 / 可视化 ===
 
-    # UMAP 散布図 / 散点图 (2D)
+    # UMAP 散布図 / 散点图
     dim = X_umap.shape[1]
     fig_scatter = go.Figure()
     for cl in sorted(unique):
@@ -277,7 +212,8 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
     fig_scatter.write_html(output_dir / f'category{cat_label}_diff_umap_{dim}d.html')
 
     # t-SNE (元空間で確認 / 原始空间确认)
-    X_tsne = TSNE(n_components=2, random_state=42, perplexity=min(30, len(df_cat)//4)).fit_transform(X_scaled)
+    X_tsne = TSNE(n_components=2, random_state=config.CLUSTER_RANDOM_SEED,
+                  perplexity=max(5, min(30, len(df_cat)//4))).fit_transform(X_scaled)
     fig_tsne = go.Figure()
     for cl in sorted(unique):
         mask_cl = labels == cl
@@ -298,51 +234,26 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
         margin=dict(l=60, r=60, t=100, b=60))
     fig_tsne.write_html(output_dir / f'category{cat_label}_diff_tsne.html')
 
-    # レーダーチャート (全体データ / 全体数据) - 差分バージョン
-    fig = go.Figure()
-    for cl in sorted(df_valid['cluster'].unique()):
+    # レーダーチャート (差分バージョン)
+    valid_clusters = sorted(df_valid['cluster'].unique())
+    fig_radar = go.Figure()
+    for cl in valid_clusters:
         cl = int(cl)
         c = cluster_centers.loc[cl]
         color = cluster_colors[cl % len(cluster_colors)]
         n_cl = len(df_valid[df_valid['cluster'] == cl])
         vals = [c[f'diff_{e}'] for e in emotion_categories]
-        fig.add_trace(go.Scatterpolar(
+        fig_radar.add_trace(go.Scatterpolar(
             r=vals + [vals[0]], theta=radar_categories, fill='toself',
             name=f'Cluster {cl} (n={n_cl})',
             line=dict(color=color), opacity=0.3))
-    fig.add_trace(go.Scatterpolar(
+    fig_radar.add_trace(go.Scatterpolar(
         r=[0.01] * len(radar_categories), theta=radar_categories,
         mode='lines', line=dict(color='red', width=2, dash='dash'),
         name='差分=0', showlegend=True))
-    fig.update_layout(**make_radar_layout(
+    fig_radar.update_layout(**make_radar_layout(
         f'Category {cat_label} — Diff Radar (n={len(df_valid)})'))
-    fig.write_html(output_dir / f'category{cat_label}_diff_radar.html')
-
-    # 感情差分チャート / 情感差分图
-    valid_clusters = sorted(df_valid['cluster'].unique())
-    fig_diff = go.Figure()
-    for cl in valid_clusters:
-        c = cluster_centers.loc[cl]
-        color = cluster_colors[cl % len(cluster_colors)]
-        n_cl = len(df_valid[df_valid['cluster'] == cl])
-        diff_vals = [c[f'diff_{e}'] for e in emotion_categories]
-
-        fig_diff.add_trace(go.Scatterpolar(
-            r=diff_vals + [diff_vals[0]], theta=radar_categories, fill='toself',
-            name=f'C{cl} (n={n_cl})',
-            line=dict(color=color), opacity=0.3))
-
-    fig_diff.add_trace(go.Scatterpolar(
-        r=[0.01] * len(radar_categories), theta=radar_categories,
-        mode='lines', line=dict(color='red', width=2, dash='dash'),
-        name='差分=0', showlegend=True))
-    fig_diff.update_layout(
-        title=dict(text=f'Category {cat_label} — 感情差分 / 情感差分', x=0.5, font=dict(size=18), y=0.98),
-        polar=dict(radialaxis=dict(visible=True, range=[-0.5, 0.5]), bgcolor='white'),
-        width=900, height=700, paper_bgcolor='white',
-        legend=dict(font=dict(size=10), x=0.5, y=-0.05, orientation='h', xanchor='center'),
-        margin=dict(l=80, r=80, t=100, b=80))
-    fig_diff.write_html(output_dir / f'category{cat_label}_diff_radar.html')
+    fig_radar.write_html(output_dir / f'category{cat_label}_diff_radar.html')
 
     # ユーザー評点箱ひげ図 (平均値付き) / 用户评分箱线图 (含均值)
     fig_rating = go.Figure()
@@ -364,11 +275,8 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
         legend=dict(font=dict(size=10), x=0.5, y=-0.08, orientation='h', xanchor='center'))
     fig_rating.write_html(output_dir / f'category{cat_label}_diff_rating_boxplot.html')
 
-    # 感情差分ジッタープロット + 柱状图 (全体データ / 全体数据)
-    valid_clusters = sorted(df_valid['cluster'].unique())
+    # 感情差分ジッタープロット
     n_cl_rt = len(valid_clusters)
-
-    # --- Jitter Plot ---
     fig_jitter = make_subplots(
         rows=1, cols=n_cl_rt,
         subplot_titles=[f'Cluster {cl} (n={len(df_valid[df_valid["cluster"]==cl])})'
@@ -502,12 +410,10 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
         print(f"\n  Cluster x Topic 交叉集計:")
         print(ct.to_string())
 
-    # 結果保存 / 结果保存
     df_cat.to_csv(output_dir / f'category{cat_label}_diff_clusters.csv', index=False, encoding='utf-8-sig')
     cluster_centers.to_csv(output_dir / f'category{cat_label}_diff_centers.csv', encoding='utf-8-sig')
     print(f"\n  保存完了 / 保存完成")
     return df_cat
-
 
 
 # 全データ一括クラスタリング / 全数据统一聚类
@@ -522,13 +428,13 @@ print(f"特徴量 / 特征: 8 diff features (reply - input)")
 print(f"パイプライン / 流水线: StandardScaler → UMAP(2D, cosine) → HDBSCAN")
 
 reducer = umap.UMAP(
-    n_components=2, n_neighbors=10, min_dist=0.0,
-    metric='cosine', random_state=42
+    n_components=config.CLUSTER_UMAP_N_COMPONENTS, n_neighbors=config.CLUSTER_UMAP_N_NEIGHBORS, min_dist=config.CLUSTER_UMAP_MIN_DIST,
+    metric=config.CLUSTER_UMAP_METRIC, random_state=config.CLUSTER_RANDOM_SEED
 )
 X_umap_all = reducer.fit_transform(X_scaled_all)
-print(f"\nUMAP: 2D (nn=10, md=0.0, cosine)")
+print(f"\nUMAP: 2D (nn={config.CLUSTER_UMAP_N_NEIGHBORS}, md={config.CLUSTER_UMAP_MIN_DIST}, cosine)")
 
-labels_all = hdbscan.HDBSCAN(min_cluster_size=20, min_samples=10, prediction_data=True).fit_predict(X_umap_all)
+labels_all = hdbscan.HDBSCAN(min_cluster_size=config.CLUSTER_HDBSCAN_MIN_CLUSTER_SIZE, min_samples=config.CLUSTER_HDBSCAN_MIN_SAMPLES, prediction_data=True).fit_predict(X_umap_all)
 
 df_all['umap_0'] = X_umap_all[:, 0]
 df_all['umap_1'] = X_umap_all[:, 1]
@@ -548,7 +454,6 @@ for cl in sorted(unique_all - {-1}):
 if noise_all > 0:
     print(f"  Noise: {noise_all}件")
 
-# クラスタ解釈 / 聚类解释
 df_valid_all = df_all[df_all['cluster'] != -1]
 cluster_centers_all = df_valid_all.groupby('cluster')[cluster_features].mean()
 
@@ -585,21 +490,17 @@ fig_scatter_all.update_layout(
     width=1000, height=800, margin=dict(l=60, r=60, t=100, b=60))
 fig_scatter_all.write_html(output_dir / 'all_diff_umap_2d.html')
 
-# 結果保存 / 全体结果保存
 df_all.to_csv(output_dir / 'all_diff_clusters.csv', index=False, encoding='utf-8-sig')
 cluster_centers_all.to_csv(output_dir / 'all_diff_centers.csv', encoding='utf-8-sig')
 
 print(f"\n全体の結果を保存しました / 全体结果已保存: {output_dir}")
 
-
-
 # カテゴリ別可視化 / 按category分别生成可视化
-
 for cat_label in [0, 1]:
     cat_dir = output_dir / f'category{cat_label}'
     cat_dir.mkdir(parents=True, exist_ok=True)
     df_cat = df_all[df_all['category'] == cat_label].copy()
-    run_pipeline(df_cat, cat_label, umap_dim=2, nn=10, md=0.0, mcs=20, ms=10, output_dir=cat_dir)
+    run_pipeline(df_cat, cat_label, umap_dim=config.CLUSTER_UMAP_N_COMPONENTS, nn=config.CLUSTER_UMAP_N_NEIGHBORS, md=config.CLUSTER_UMAP_MIN_DIST, mcs=config.CLUSTER_HDBSCAN_MIN_CLUSTER_SIZE, ms=config.CLUSTER_HDBSCAN_MIN_SAMPLES, output_dir=cat_dir)
 
 df_result0 = pd.read_csv(output_dir / 'category0' / 'category0_diff_clusters.csv', on_bad_lines='warn')
 df_result1 = pd.read_csv(output_dir / 'category1' / 'category1_diff_clusters.csv', on_bad_lines='warn')

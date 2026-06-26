@@ -1,5 +1,4 @@
 import os
-os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
 
 # 依赖库运行测试 / 依存ライブラリ動作テスト
@@ -29,10 +28,35 @@ print("\n[PyTorch & CUDA]")
 import torch
 results['torch'] = test_library('torch')
 print(torch.__version__)
+print(torch.__file__)
 print(torch.version.cuda)
+# 1. 检查 CUDA 驱动库是否能被系统加载
+print("CUDA 驱动初始化状态:", torch.cuda.is_initialized())
+
+# 2. 打印引发错误的底层原因（如果有的话）
+try:
+    torch.cuda.init()
+except Exception as e:
+    print("\n[关键报错信息] CUDA 初始化失败原因:")
+    print(e)
 print(f"  CUDA可用性 / CUDA利用可能: {torch.cuda.is_available()}")
 if torch.cuda.is_available():
     print(f"  GPU: {torch.cuda.get_device_name(0)}")
+
+import ctypes
+
+try:
+    # 尝试直接加载 Windows 系统自带的 CUDA 核心驱动库
+    cuda_lib = ctypes.CDLL('nvcuda.dll')
+    print("[OK] 系统成功加载 nvcuda.dll")
+
+    # 尝试加载 PyTorch 的本地运行时组件
+    import torch
+
+    print("[OK] PyTorch 模块本身加载正常")
+except Exception as e:
+    print("[ERROR] 底层系统 DLL 加载失败！原因：")
+    print(e)
 
 # Transformers
 print("\n[Transformers]")

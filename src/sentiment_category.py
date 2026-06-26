@@ -87,12 +87,12 @@ X_scaled = scaler.fit_transform(X)
 
 # 肘部法则(Elbow Method)确定最优K / エルボー法で最適Kを決定
 print("\n肘部法则分析 / エルボー法による分析")
-K_range = range(2, 11)
+K_range = config.KMEANS_K_RANGE
 inertias = []
 silhouette_scores = []
 
 for k in K_range:
-    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+    kmeans = KMeans(n_clusters=k, random_state=config.KMEANS_RANDOM_SEED, n_init=config.KMEANS_N_INIT)
     labels = kmeans.fit_predict(X_scaled)
     inertias.append(kmeans.inertia_)
     sil_score = silhouette_score(X_scaled, labels)
@@ -161,7 +161,7 @@ print(f"肘部法则图已保存至 / エルボー法グラフを保存しまし
 
 # 使用最优K进行最终聚类 / 最適Kで最終クラスタリングを実行
 print(f"\n使用 K={best_k} 进行最终聚类 / K={best_k} で最終クラスタリングを実行")
-kmeans_final = KMeans(n_clusters=best_k, random_state=42, n_init=10)
+kmeans_final = KMeans(n_clusters=best_k, random_state=config.KMEANS_RANDOM_SEED, n_init=config.KMEANS_N_INIT)
 df['cluster'] = kmeans_final.fit_predict(X_scaled)
 
 # 分析聚类中心 / クラスタ中心を分析

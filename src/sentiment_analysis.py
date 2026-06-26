@@ -76,7 +76,7 @@ print(f"情感标签: {model.config.id2label} / 感情ラベル: {model.config.i
 
 
 # 批量情感分析（返回8种情感分数）/ バッチ感情分析（8つの感情スコアを返す）
-def analyze_emotions_batch(texts, batch_size=32):
+def analyze_emotions_batch(texts, batch_size=config.SENTIMENT_BATCH_SIZE):
     """
     批量进行8种情感分析
     8つの感情をバッチで分析する
@@ -89,7 +89,7 @@ def analyze_emotions_batch(texts, batch_size=32):
         if pd.isna(text) or str(text).strip() == "":
             continue
         valid_indices.append(i)
-        valid_texts.append(str(text)[:512])
+        valid_texts.append(str(text))
 
     if not valid_texts:
         return results
@@ -100,7 +100,12 @@ def analyze_emotions_batch(texts, batch_size=32):
             batch_texts = valid_texts[start:end]
             batch_indices = valid_indices[start:end]
 
-            batch_results = sentiment_pipeline(batch_texts, batch_size=batch_size)
+            batch_results = sentiment_pipeline(
+                batch_texts,
+                batch_size=batch_size,
+                truncation=True,
+                max_length=config.SENTIMENT_MAX_LENGTH,
+            )
 
             for idx, res in zip(batch_indices, batch_results):
                 scores = {item['label']: item['score'] for item in res}

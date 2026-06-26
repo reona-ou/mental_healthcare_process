@@ -21,8 +21,8 @@ warnings.filterwarnings("ignore")
 # 设置 — 本地模型优先 / 設定 — ローカルモデル優先
 LOCAL_MODEL_PATH = config.MODELS_DIR / "bert-base-japanese-v3"
 MODEL_NAME = str(LOCAL_MODEL_PATH) if LOCAL_MODEL_PATH.exists() else "tohoku-nlp/bert-base-japanese-v3"
-RANDOM_SEED = 42
-MIN_TOPIC_SIZE = 5  # 优化：从2改为5，减少碎片化
+RANDOM_SEED = config.TOPIC_RANDOM_SEED
+MIN_TOPIC_SIZE = config.TOPIC_MIN_TOPIC_SIZE
 
 # 如果 CUDA 可用则使用 GPU / CUDA が利用可能なら GPU を使用
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -36,103 +36,80 @@ KEEP_POS = {"名詞", "動詞", "形容詞"}
 PUNCTUATION_POS = {"補助記号", "記号", "助詞", "助動詞", "接続詞", "感動詞", "接頭詞", "接尾詞"}
 
 # シードトピック（BERTopic 半監督モード用）
+# 負面カテゴリ: 詐欺・浮気・DV・離婚・自殺等の极端ケースのみ
 SEED_TOPICS = [
     # 離婚・別離
-    ["離婚", "別れ", "別れたい", "別居", "親権", "離婚届", "離婚届け", "離婚を考え", "結婚を終わら"],
+    ["離婚", "別れたい", "別居", "親権", "離婚届", "離婚を考え", "結婚を終わら"],
     # 浮気・不倫
-    ["浮気", "不倫", "愛人", "二股", "浮気相手", "不倫相手", "裏切り", "裏切られた", "騙されてる", "騙された"],
+    ["浮気", "不倫", "愛人", "二股", "浮気相手", "不倫相手"],
     # 流産・妊娠問題
-    ["流産", "妊娠中絶", "死産", "流産した", "流産して", "流産後"],
+    ["流産", "死産", "妊娠中絶"],
     # 詐欺・被害
-    ["詐欺", "被害", "騙す", "騙された", "フィッシング", "騙されてない", "詐欺じゃない"],
+    ["詐欺", "フィッシング", "騙されて", "騙す"],
     # DV・暴力
-    ["DV", "暴力", "暴行", "傷害", "殴", "蹴", "脅", "叩", "暴言", "怒鳴", "つつか", "ひっぱた", "物投げ"],
-    # モラハラ・精神的虐待
-    ["モラハラ", "モラルハラスメント", "パワハラ", "精神的虐待", "嫌味", "陰口", "無視"],
-    # 婚姻・家庭ストレス
-    ["夫が嫌い", "嫁", "姑", "義理", "家庭内", "escape", "逃げたい", "もう無理", "限界"],
-    # その他の困難
-    ["死にたい", "消えたい", "生きる意味", "鬱", "うつ", "自殺", "死ねない", "死なない"],
+    ["DV", "暴力", "暴行", "傷害", "殴", "蹴", "脅", "叩", "暴言", "怒鳴"],
+    # モラハラ
+    ["モラハラ", "モラルハラスメント", "パワハラ"],
+    # 自殺・自傷
+    ["死にたい", "消えたい", "自殺", "死のう", "生きる意味", "いらない", "終わらせたい", "死ねない", "死なない", "死にきれ"],
 ]
 
 # パターンベース検出用のキーワード組み合わせ（2カテゴリ分類用）
+# 負面カテゴリ: 詐欺・浮気・DV・離婚等の极端ケースのみ
 PATTERN_COMBOS = [
     # 離婚別離パターン
     {
         "name": "離婚別離",
-        "required": [["離婚", "別れ", "別居", "親権", "離縁", "離婚届", "調停", "弁護士"]],
-        "context": ["夫", "妻", "旦那", "主人", "パートナー", "相手", "もう無理", "限界"],
-        "risk": ["耐え", "したい", "考え", "決意", "覚悟", "本当", "気持ち"],
+        "required": [["離婚", "別居", "親権", "離婚届", "調停", "弁護士"]],
+        "context": ["夫", "妻", "旦那", "主人", "パートナー"],
     },
     # 浮気不倫パターン
     {
         "name": "浮気不倫",
         "required": [["浮気", "不倫", "愛人", "二股", "不貞"]],
         "context": ["夫", "妻", "旦那", "主人", "彼", "パートナー"],
-        "risk": ["疑わ", "怪しい", "バレ", "証拠", "見つけ", "気づ", "確信", "本当"],
     },
     # 流産妊娠問題パターン
     {
         "name": "流産妊娠問題",
-        "required": [["流産", "死産", "中絶", "妊娠中絶", "人工妊娠中絶"]],
-        "context": ["辛い", "悲しい", "ショック", "失う", "赤ちゃん", "胎児"],
-        "risk": ["妊娠", "出産", "子供", "体", "心", "病院", "処置", "痛い", "怖い", "涙", "落ち込"],
+        "required": [["流産", "死産", "中絶", "妊娠中絶"]],
+        "context": [],
     },
-    # ロマンス詐欺パターン
+    # ロマンス詐欺パターン（SNS + 海外 + お金）
     {
         "name": "ロマンス詐欺",
-        "required": [["Facebook", "facebook", "フェイスブック", "SNS", "LINE", "インスタ", "Instagram", "Twitter", "ツイッター", "sns"]],
-        "context": ["海外", "外国", "知り合", "出会い", "メッセージ"],
-        "risk": ["融資", "送金", "お金", "投資", "貯金", "ローン", "借金", "資金", "送っ", "振込"],
+        "required": [["Facebook", "facebook", "フェイスブック", "SNS", "LINE", "インスタ", "Instagram", "Twitter", "ツイッター", "マッチング", "matching"]],
+        "context": ["海外", "外国", "貸", "送金", "お金", "投資", "返す"],
     },
-    # 投資詐欺パターン
+    # 海外関係 + お金のやり取り（SNSなしでも検出）
     {
-        "name": "投資詐欺",
-        "required": [["ベンチャー", "起業", "投資", "ビジネス", "儲け", "儲かる", "副業", "FX", "仮想通貨", "暗号資産", "資金", "出資"]],
-        "context": ["誘わ", "持ちかけ", "話", "紹介", "頼ま", "言われ", "誘い", "勧め"],
-        "risk": ["融資", "貯金", "多額", "借入", "ローン", "借金", "消える", "減る", "危険", "怪しい", "不安", "心配", "お金", "金", "額", "万円"],
+        "name": "海外金銭",
+        "required": [["海外", "外国"]],
+        "context": ["貸", "送金", "お金", "投資", "返す", "資金", "融資", "知り合", "出会"],
+    },
+    # 詐欺パターン（登録だけでお金、ベビーモデル、掲載料等）
+    {
+        "name": "詐欺",
+        "required": [["詐欺", "フィッシング", "登録するだけで", "月々数万", "掲載料", "ベビーモデル"]],
+        "context": [],
     },
     # DV暴力パターン
     {
         "name": "DV暴力",
-        "required": [["DV", "暴力", "暴行", "傷害", "殴", "蹴", "脅", "叩", "暴言", "怒鳴", "つつか", "ひっぱた"]],
+        "required": [["DV", "暴力", "暴行", "傷害", "殴", "蹴", "脅", "叩", "暴言", "怒鳴"]],
         "context": ["夫", "妻", "旦那", "彼", "パートナー", "家族"],
-        "risk": ["怖い", "危険", "逃げ", "助け", "警察", "痛い", "怪我", "病院"],
     },
     # モラハラパターン
     {
         "name": "モラハラ",
-        "required": [["モラハラ", "モラルハラスメント", "パワハラ", "精神的虐待", "嫌味", "陰口", "無視"]],
-        "context": ["夫", "妻", "旦那", "彼", "職場", "上司"],
-        "risk": ["辛い", "苦しい", "追い詰め", "限界", "もう無理", "疲れた", "鬱"],
-    },
-    # 浮気不倫の間接的表現パターン
-    {
-        "name": "浮気示唆",
-        "required": [["知り合", "出会い", "会い", "連絡", "メッセージ"]],
-        "context": ["海外", "外国", "異性", "男性", "女性", "彼"],
-        "risk": ["夫より", "信頼", "嬉しい", "楽しい", "優し", "気持", "秘密", "夢中"],
-    },
-    # 婚姻関係ストレスパターン
-    {
-        "name": "婚姻ストレス",
-        "required": [["夫", "妻", "旦那", "主人", "パートナー", "嫁", "姑", "義理"]],
-        "context": ["辛い", "苦しい", "疲れた", "限界", "もう無理", "しんどい", "嫌い", "鬱", "逃げたい", "死にたい"],
-        "risk": ["厳し", "怒鳴", "無視", "当た", "Ѳ", "暴力", "束縛", "支配"],
-    },
-    # メンタルヘルスパターン
-    {
-        "name": "メンタルヘルス",
-        "required": [["鬱", "うつ", "PTSD", "パニック", "不安障害", "適応障害", "プレッシャー", "バーンアウト", "燃え尽き"]],
-        "context": ["病院", "薬", "カウンセリング", "診断", "治療"],
-        "risk": ["辛い", "苦しい", "死にたい", "消えたい", "限界"],
-    },
-    # 一般的苦痛・限界パターン（required のみで判定）
-    {
-        "name": "一般的苦痛",
-        "required": [["死にたい", "消えたい", "もう無理", "限界", "自殺", "生きる意味", "いらない"]],
+        "required": [["モラハラ", "モラルハラスメント", "パワハラ"]],
         "context": [],
-        "risk": [],
+    },
+    # 自殺・自傷パターン
+    {
+        "name": "自殺自傷",
+        "required": [["死にたい", "消えたい", "自殺", "死のう", "生きる意味", "いらない", "終わらせたい", "死ねない", "死なない", "死にきれ"]],
+        "context": [],
     },
 ]
 
@@ -185,28 +162,31 @@ def run_topic_modeling(
     embeddings = embedding_model.encode(
         valid_texts,
         show_progress_bar=True,
-        batch_size=64 if DEVICE == "cuda" else 16,
+        batch_size=config.TOPIC_EMBEDDING_BATCH_SIZE_CUDA if DEVICE == "cuda" else config.TOPIC_EMBEDDING_BATCH_SIZE_CPU,
     )
     print(f"  嵌入维度: {embeddings.shape}")
 
     print("  正在执行 BERTopic 话题建模...")
 
     umap_model = UMAP(
-        n_neighbors=15,
-        n_components=5,
-        min_dist=0.0,
-        metric="cosine",
+        n_neighbors=config.TOPIC_UMAP_N_NEIGHBORS,
+        n_components=config.TOPIC_UMAP_N_COMPONENTS,
+        min_dist=config.TOPIC_UMAP_MIN_DIST,
+        metric=config.TOPIC_UMAP_METRIC,
         random_state=RANDOM_SEED,
     )
 
-    vectorizer = CountVectorizer()
+    vectorizer = CountVectorizer(
+        max_df=config.TOPIC_VECTORIZER_MAX_DF,
+        min_df=config.TOPIC_VECTORIZER_MIN_DF,
+    )
 
     topic_model = BERTopic(
         embedding_model=None,
         umap_model=umap_model,
         vectorizer_model=vectorizer,
         min_topic_size=MIN_TOPIC_SIZE,
-        nr_topics=n_topics,
+        nr_topics=None,
         verbose=True,
         language="japanese",
     )
@@ -328,51 +308,16 @@ def classify_by_keywords(
     for idx, tid in zip(valid_indices[:len(topic_id_list)], topic_id_list):
         result_df.at[idx, "topic_id"] = tid
 
-    print("    BERTopic 半監督モードで2カテゴリ分類用モデルを訓練中...")
-    tokenized_texts = [tokenize_with_fugashi(t) for t in valid_texts]
-
-    embedding_model = SentenceTransformer(MODEL_NAME, device=DEVICE)
-    embeddings = embedding_model.encode(
-        valid_texts,
-        show_progress_bar=False,
-        batch_size=64 if DEVICE == "cuda" else 16,
-    )
-
-    umap_model = UMAP(
-        n_neighbors=15,
-        n_components=5,
-        min_dist=0.0,
-        metric="cosine",
-        random_state=RANDOM_SEED,
-    )
-
-    vectorizer = CountVectorizer()
-
-    category_model = BERTopic(
-        embedding_model=None,
-        umap_model=umap_model,
-        vectorizer_model=vectorizer,
-        min_topic_size=3,
-        seed_topic_list=SEED_TOPICS,
-        verbose=False,
-        language="japanese",
-    )
-
-    category_topics, category_probs = category_model.fit_transform(
-        tokenized_texts,
-        embeddings=embeddings,
-    )
-
-    negative_topic_ids = set()
     all_seed_keywords = set()
     for seed_group in SEED_TOPICS:
         all_seed_keywords.update(seed_group)
 
-    topic_info = category_model.get_topic_info()
+    negative_topic_ids = set()
+    topic_info = topic_model.get_topic_info()
     for topic_id in topic_info["Topic"].values:
         if topic_id == -1:
             continue
-        topic_keywords = category_model.get_topic(topic_id)
+        topic_keywords = topic_model.get_topic(topic_id)
         if topic_keywords:
             keyword_list = [kw for kw, _ in topic_keywords]
             for seed_group in SEED_TOPICS:
@@ -382,27 +327,56 @@ def classify_by_keywords(
                     print(f"    負面トピック特定: Topic {topic_id} ({matches}キーワード一致)")
                     break
 
+    negative_user_ids = set()
+    for idx, row in result_df.iterrows():
+        user_text = str(row.get("userInput", ""))
+        if not user_text.strip():
+            continue
+        is_match, _ = check_pattern_combos(user_text)
+        if is_match:
+            negative_user_ids.add(row.get("userId"))
+        if any(kw in user_text for kw in all_seed_keywords):
+            negative_user_ids.add(row.get("userId"))
+
+    negative_indices = set()
+    all_rows = list(result_df.iterrows())
+    for i, (idx, row) in enumerate(all_rows):
+        user_text = str(row.get("userInput", ""))
+        if not user_text.strip():
+            continue
+
+        context_texts = [user_text]
+        for j in range(max(0, i-2), i):
+            prev_text = str(all_rows[j][1].get("userInput", ""))
+            if prev_text.strip():
+                context_texts.append(prev_text)
+
+        combined = " ".join(context_texts)
+        is_match, pattern_name = check_pattern_combos(combined)
+        if is_match and pattern_name in ("ロマンス詐欺", "海外金銭"):
+            trigger_keywords = ["お金", "貸", "送金", "投資", "融資"]
+            if any(kw in user_text for kw in trigger_keywords):
+                negative_indices.add(idx)
+
     def assign_category(row):
         user_text = str(row.get("userInput", ""))
 
         if not user_text.strip():
             return 1
 
-        # 1. パターンベース組み合わせ検出（最優先）
+        if row.name in negative_indices:
+            return 0
+
         is_pattern_match, pattern_name = check_pattern_combos(user_text)
         if is_pattern_match:
             return 0
 
-        # 2. 直接キーワードマッチング
         if any(kw in user_text for kw in all_seed_keywords):
             return 0
 
-        # 3. BERTopic半監督モデルによる分類
-        row_idx = result_df.index.get_loc(row.name)
-        if row_idx < len(category_topics):
-            tid = category_topics[row_idx]
-            if tid in negative_topic_ids:
-                return 0
+        tid = row.get("topic_id")
+        if tid is not None and tid in negative_topic_ids:
+            return 0
 
         return 1
 
@@ -439,47 +413,15 @@ if __name__ == "__main__":
     print(f"mochiko: {len(df_mochiko)} 行")
     print(f"pen_sensei: {len(df_pen_sensei)} 行")
 
-    mochiko_input_texts = df_mochiko["userInput"].fillna("").tolist()
-    run_topic_modeling(
-        texts=mochiko_input_texts,
-        dataset_name="mochiko",
-        text_type="userInput",
-        output_dir=output_dir,
-    )
-
-    mochiko_reply_texts = df_mochiko["replyText"].fillna("").tolist()
-    run_topic_modeling(
-        texts=mochiko_reply_texts,
-        dataset_name="mochiko",
-        text_type="replyText",
-        output_dir=output_dir,
-    )
-
-    pen_input_texts = df_pen_sensei["userInput"].fillna("").tolist()
-    run_topic_modeling(
-        texts=pen_input_texts,
-        dataset_name="pen_sensei",
-        text_type="userInput",
-        output_dir=output_dir,
-    )
-
-    pen_reply_texts = df_pen_sensei["replyText"].fillna("").tolist()
-    run_topic_modeling(
-        texts=pen_reply_texts,
-        dataset_name="pen_sensei",
-        text_type="replyText",
-        output_dir=output_dir,
-    )
-
-    print(f"  合并两者的用户输入进行话题建模")
-    all_input_texts = mochiko_input_texts + pen_input_texts
-    combined_source_df = pd.concat([df_mochiko, df_pen_sensei], ignore_index=True)
+    print(f"  合并全部用户输入进行话题建模")
+    combined_df = pd.concat([df_mochiko, df_pen_sensei], ignore_index=True)
+    all_input_texts = combined_df["userInput"].fillna("").tolist()
     run_topic_modeling(
         texts=all_input_texts,
         dataset_name="combined",
         text_type="userInput",
         output_dir=output_dir,
-        source_df=combined_source_df,
+        source_df=combined_df,
     )
 
     print(f"  话题建模完成！")

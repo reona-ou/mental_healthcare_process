@@ -117,7 +117,7 @@ def run_pipeline(df_cat, cat_label, pca_dim, umap_dim, nn, md, mcs, ms, output_d
     X_scaled = scaler.fit_transform(X)
 
     # PCA / 主成分分析
-    pca = PCA(n_components=pca_dim, random_state=42)
+    pca = PCA(n_components=pca_dim, random_state=config.CLUSTER_RANDOM_SEED)
     X_pca = pca.fit_transform(X_scaled)
     cumvar = np.sum(pca.explained_variance_ratio_)
     print(f"  PCA: {pca_dim}D (累積寄与率 / 累积贡献率 {cumvar:.3f})")
@@ -125,7 +125,7 @@ def run_pipeline(df_cat, cat_label, pca_dim, umap_dim, nn, md, mcs, ms, output_d
     # UMAP (コサイン類似度) / UMAP (余弦相似度)
     reducer = umap.UMAP(
         n_components=umap_dim, n_neighbors=nn, min_dist=md,
-        metric='cosine', random_state=42
+        metric='cosine', random_state=config.CLUSTER_RANDOM_SEED
     )
     X_umap = reducer.fit_transform(X_pca)
     print(f"  UMAP: {umap_dim}D (nn={nn}, md={md}, cosine)")
@@ -221,7 +221,7 @@ def run_pipeline(df_cat, cat_label, pca_dim, umap_dim, nn, md, mcs, ms, output_d
     fig_scatter.write_html(output_dir / f'category{cat_label}_umap_{dim}d.html')
 
     # t-SNE (元空間で確認 / 原始空间确认)
-    X_tsne = TSNE(n_components=2, random_state=42, perplexity=min(30, len(df_cat)//4)).fit_transform(X_scaled)
+    X_tsne = TSNE(n_components=2, random_state=config.CLUSTER_RANDOM_SEED, perplexity=min(30, len(df_cat)//4)).fit_transform(X_scaled)
     fig_tsne = go.Figure()
     for cl in sorted(unique):
         mask_cl = labels == cl
