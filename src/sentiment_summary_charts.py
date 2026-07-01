@@ -1,0 +1,236 @@
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import config
+
+SENTIMENT_DIR = config.DATA_DIR / "sentiment"
+
+EMOTIONS = ['joy', 'sadness', 'anticipation', 'surprise', 'anger', 'fear', 'disgust', 'trust']
+EMOTION_LABELS = {
+    'joy': '喜び', 'sadness': '悲しみ', 'anticipation': '期待', 'surprise': '驚き',
+    'anger': '怒り', 'fear': '恐れ', 'disgust': '嫌悪', 'trust': '信頼'
+}
+EMOTION_COLORS = {
+    'joy': '#FFD700', 'sadness': '#1E90FF', 'anticipation': '#FF8C00', 'surprise': '#FF69B4',
+    'anger': '#DC143C', 'fear': '#8B008B', 'disgust': '#2E8B57', 'trust': '#4169E1'
+}
+RADAR_LABELS = [EMOTION_LABELS[e] for e in EMOTIONS] + [EMOTION_LABELS[EMOTIONS[0]]]
+
+
+def compute_stats(scores_df):
+    """计算各情感的统计指标"""
+    stats = {}
+    for emo in EMOTIONS:
+        vals = scores_df[emo].dropna()
+        stats[emo] = {
+            'mean': vals.mean(),
+            'median': vals.median(),
+            'std': vals.std(),
+            'max': vals.max(),
+            'min': vals.min(),
+        }
+    return pd.DataFrame(stats, index=['mean', 'median', 'std', 'max', 'min']).T
+
+
+def get_dominant_emotions(scores_df):
+    """获取每条数据的主导情绪"""
+    return scores_df[EMOTIONS].idxmax(axis=1)
+
+
+def create_dominant_emotion_chart(dominant_counts, title, output_path):
+    """主导情绪柱状图"""
+    labels = [EMOTION_LABELS[e] for e in dominant_counts.index]
+    colors = [EMOTION_COLORS[e] for e in dominant_counts.index]
+
+    fig = go.Figure(go.Bar(
+        x=labels, y=dominant_counts.values,
+        marker_color=colors, text=dominant_counts.values, textposition='outside'
+    ))
+    fig.update_layout(
+        title=dict(text=title, x=0.5, font=dict(size=18)),
+        xaxis_title='感情 / Emotion', yaxis_title='件数 / Count',
+        width=900, height=600, paper_bgcolor='white', plot_bgcolor='white',
+        margin=dict(l=60, r=60, t=100, b=60)
+    )
+    fig.write_html(output_path)
+    print(f"  {output_path.name}")
+
+
+def create_radar_chart(stats_df, title, output_path):
+    """雷达图（均值）"""
+    vals = stats_df['mean'].tolist() + [stats_df['mean'].tolist()[0]]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=vals, theta=RADAR_LABELS, fill='toself',
+        line=dict(color='#636EFA', width=2), opacity=0.4,
+        name='Mean'
+    ))
+    fig.update_layout(
+        title=dict(text=title, x=0.5, font=dict(size=18)),
+        polar=dict(radialaxis=dict(visible=True, range=[0, 1]), bgcolor='white'),
+        width=900, height=700, paper_bgcolor='white',
+        margin=dict(l=80, r=80, t=100, b=80)
+    )
+    fig.write_html(output_path)
+    print(f"  {output_path.name}")
+
+
+def create_stats_bar_chart(stats_df, title, output_path):
+    """统计指标柱状图（mean/median/std/max/min 分面）"""
+    labels = [EMOTION_LABELS[e] for e in stats_df.index]
+    colors = [EMOTION_COLORS[e] for e in stats_df.index]
+    stat_names = ['mean', 'median', 'std', 'max', 'min']
+
+    fig = make_subplots(
+        rows=2, cols=3,
+        subplot_titles=['Mean / 平均値', 'Median / 中央値', 'SD / 標準偏差',
+                        'Max / 最大値', 'Min / 最小値'],
+        horizontal_spacing=0.08, vertical_spacing=0.15
+    )
+    positions = [(1, 1), (1, 2), (1, 3), (2, 1), (2, 2)]
+
+    all_vals = []
+    for stat in stat_names:
+        all_vals.extend(stats_df[stat].tolist())
+    bound = max(abs(min(all_vals)), abs(max(all_vals))) * 1.1
+
+    for (row, col), stat in zip(positions, stat_names):
+        fig.add_trace(go.Bar(
+            x=labels, y=stats_df[stat].tolist(),
+            marker_color=colors, name=stat, showlegend=False
+        ), row=row, col=col)
+        if stat in ('mean', 'median'):
+            fig.add_hline(y=0, line_dash='dash', line_color='red', opacity=0.5, row=row, col=col)
+
+    for r, c in positions:
+        fig.update_layout(**{f'yaxis{r if c == 1 else ""}{"" if (r, c) == (1, 1) else (r - 1) * 3 + c}': dict(range=[-bound, bound])})
+
+    fig.update_layout(
+        title=dict(text=title, x=0.5, font=dict(size=18)),
+        width=1400, height=800, paper_bgcolor='white', plot_bgcolor='white',
+        margin=dict(l=60, r=60, t=100, b=100),
+        legend=dict(font=dict(size=10))
+    )
+    fig.write_html(output_path)
+    print(f"  {output_path.name}")
+
+
+def create_emotion_boxplot(scores_df, title, output_path):
+    """各情感箱线图"""
+    fig = go.Figure()
+    for emo in EMOTIONS:
+        fig.add_trace(go.Box(
+            y=scores_df[emo].dropna(), name=EMOTION_LABELS[emo],
+            marker_color=EMOTION_COLORS[emo], boxmean=True
+        ))
+    fig.update_layout(
+        title=dict(text=title, x=0.5, font=dict(size=18)),
+        yaxis_title='スコア / Score',
+        width=1200, height=600, paper_bgcolor='white', plot_bgcolor='white',
+        margin=dict(l=60, r=60, t=100, b=60)
+    )
+    fig.write_html(output_path)
+    print(f"  {output_path.name}")
+
+
+def analyze_group(scores_df, prefix, output_dir):
+    """对一组情感数据生成全部图表"""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    col_names = [f'{prefix}_{e}' for e in EMOTIONS]
+    renamed = scores_df[col_names].copy()
+    renamed.columns = EMOTIONS
+
+    stats_df = compute_stats(renamed)
+    dominant = get_dominant_emotions(renamed)
+    dominant_counts = dominant.value_counts().reindex(EMOTIONS, fill_value=0)
+
+    # CSV
+    stats_csv = output_dir / f'{prefix}_statistics.csv'
+    stats_df.to_csv(stats_csv, encoding='utf-8-sig')
+
+    # 图表
+    create_dominant_emotion_chart(
+        dominant_counts,
+        f'{prefix.upper()} — 主導感情分布 / Dominant Emotion Distribution',
+        output_dir / f'{prefix}_dominant_emotion.html'
+    )
+    create_radar_chart(
+        stats_df,
+        f'{prefix.upper()} — 感情雷达图 / Emotion Radar',
+        output_dir / f'{prefix}_radar.html'
+    )
+    create_stats_bar_chart(
+        stats_df,
+        f'{prefix.upper()} — 统計指標比較 / Statistics Comparison',
+        output_dir / f'{prefix}_stats_comparison.html'
+    )
+    create_emotion_boxplot(
+        renamed,
+        f'{prefix.upper()} — 感情スコア分布 / Emotion Score Distribution',
+        output_dir / f'{prefix}_boxplot.html'
+    )
+
+    return stats_df
+
+
+if __name__ == "__main__":
+    print("情感分析サマリーチャート生成 / 情感分析汇总图表生成\n")
+
+    df = pd.read_csv(SENTIMENT_DIR / 'sentiment.csv')
+    print(f"データ数: {len(df)}, ユーザー数: {df['userId'].nunique()}\n")
+
+    # 1. userInput
+    print("=== userInput 分析 ===")
+    stats_input = analyze_group(df, 'input', SENTIMENT_DIR / 'input_analysis')
+
+    # 2. reply (chatbotReply)
+    print("\n=== chatbotReply 分析 ===")
+    stats_reply = analyze_group(df, 'reply', SENTIMENT_DIR / 'reply_analysis')
+
+    # 3. overall (input + reply 混合)
+    print("\n=== overall 分析 ===")
+    overall_dir = SENTIMENT_DIR / 'overall_analysis'
+    overall_dir.mkdir(parents=True, exist_ok=True)
+
+    all_scores = []
+    for emo in EMOTIONS:
+        all_scores.extend(df[f'input_{emo}'].dropna().tolist())
+        all_scores.extend(df[f'reply_{emo}'].dropna().tolist())
+
+    overall_df = pd.DataFrame()
+    for emo in EMOTIONS:
+        overall_df[emo] = pd.concat([df[f'input_{emo}'], df[f'reply_{emo}']], ignore_index=True)
+
+    overall_stats = compute_stats(overall_df)
+    overall_dominant = get_dominant_emotions(overall_df)
+    overall_dominant_counts = overall_dominant.value_counts().reindex(EMOTIONS, fill_value=0)
+
+    overall_stats.to_csv(overall_dir / 'overall_statistics.csv', encoding='utf-8-sig')
+    create_dominant_emotion_chart(
+        overall_dominant_counts,
+        'OVERALL — 主導感情分布 / Dominant Emotion Distribution',
+        overall_dir / 'overall_dominant_emotion.html'
+    )
+    create_radar_chart(
+        overall_stats,
+        'OVERALL — 感情雷达图 / Emotion Radar',
+        overall_dir / 'overall_radar.html'
+    )
+    create_stats_bar_chart(
+        overall_stats,
+        'OVERALL — 统計指標比較 / Statistics Comparison',
+        overall_dir / 'overall_stats_comparison.html'
+    )
+    create_emotion_boxplot(
+        overall_df,
+        'OVERALL — 感情スコア分布 / Emotion Score Distribution',
+        overall_dir / 'overall_boxplot.html'
+    )
+
+    print(f"\n完了 / 完成")
+    print(f"出力先: {SENTIMENT_DIR}")
+    print(f"  input_analysis/   — userInput 感情分析")
+    print(f"  reply_analysis/   — chatbotReply 感情分析")
+    print(f"  overall_analysis/ — 全体感情分析")

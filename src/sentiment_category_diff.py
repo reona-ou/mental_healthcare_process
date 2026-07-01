@@ -21,30 +21,25 @@ for col in ['userId', 'session_id']:
     df_all[col] = df_all[col].astype(str)
     df_category[col] = df_category[col].astype(str)
 
-df_all = df_all.merge(df_category[['session_id', 'category', 'topic_id']], on='session_id', how='left')
-
 df_doc_topics = pd.read_csv(config.DATA_DIR / 'topic_modeling/combined_userInput_doc_topics.csv', on_bad_lines='warn')
 df_doc_topics['original_text'] = df_doc_topics['original_text'].fillna('').astype(str)
 df_all['userInput'] = df_all['userInput'].fillna('').astype(str)
-
 df_doc_unique = df_doc_topics.drop_duplicates(subset=['original_text'], keep='first')
-df_doc_unique = df_doc_unique.rename(columns={'topic_id': 'topic_id_detail', 'topic_probability': 'topic_prob'})
+
+df_all = df_all.merge(df_category[['session_id', 'category', 'topic_id']], on='session_id', how='left')
 df_all = df_all.merge(
-    df_doc_unique[['original_text', 'topic_id_detail', 'topic_prob']],
+    df_doc_unique[['original_text', 'topic_id']].rename(columns={'topic_id': 'topic_id_detail'}),
     left_on='userInput', right_on='original_text', how='left'
 )
 df_all.drop(columns=['original_text'], inplace=True, errors='ignore')
+df_all['topic'] = df_all['topic_id_detail'].fillna(df_all.get('topic_id', -1)).fillna(-1).astype(int)
+df_all.drop(columns=['topic_id', 'topic_id_detail'], errors='ignore', inplace=True)
 
 print(f"データ数 / 数据量: {len(df_all)}")
 
 emotion_categories = ['joy', 'sadness', 'anticipation', 'surprise', 'anger', 'fear', 'disgust', 'trust']
 diff_features = [f'diff_{e}' for e in emotion_categories]
 cluster_features = diff_features
-
-if 'topic_id_detail' in df_all.columns:
-    df_all['topic'] = df_all['topic_id_detail'].fillna(-1).astype(int)
-else:
-    df_all['topic'] = df_all.get('topic_id', pd.Series([-1]*len(df_all))).fillna(-1).astype(int)
 
 output_dir = config.DATA_DIR / 'sentiment/cluster_topic_diff'
 output_dir.mkdir(parents=True, exist_ok=True)
@@ -489,6 +484,204 @@ fig_scatter_all.update_layout(
     paper_bgcolor='white', plot_bgcolor='white',
     width=1000, height=800, margin=dict(l=60, r=60, t=100, b=60))
 fig_scatter_all.write_html(output_dir / 'all_diff_umap_2d.html')
+
+# t-SNE
+X_tsne_all = TSNE(n_components=2, random_state=config.CLUSTER_RANDOM_SEED,
+                  perplexity=max(5, min(30, len(df_all)//4))).fit_transform(X_scaled_all)
+fig_tsne_all = go.Figure()
+for cl in sorted(unique_all):
+    mask_cl = labels_all == cl
+    if cl == -1:
+        fig_tsne_all.add_trace(go.Scatter(
+            x=X_tsne_all[mask_cl, 0], y=X_tsne_all[mask_cl, 1], mode='markers',
+            marker=dict(size=3, color='gray', opacity=0.2), name='Noise'))
+    else:
+        fig_tsne_all.add_trace(go.Scatter(
+            x=X_tsne_all[mask_cl, 0], y=X_tsne_all[mask_cl, 1], mode='markers',
+            marker=dict(size=6, color=cluster_colors[cl % len(cluster_colors)], opacity=0.7),
+            name=f'Cluster {cl} (n={mask_cl.sum()})'))
+fig_tsne_all.update_layout(
+    title=dict(text='All Data — Diff t-SNE (all data clustering)', x=0.5, font=dict(size=18)),
+    xaxis_title='t-SNE 1', yaxis_title='t-SNE 2',
+    width=900, height=700, plot_bgcolor='white', paper_bgcolor='white',
+    margin=dict(l=60, r=60, t=100, b=60))
+fig_tsne_all.write_html(output_dir / 'all_diff_tsne.html')
+
+# レーダーチャート
+valid_clusters_all = sorted(df_valid_all['cluster'].unique())
+fig_radar_all = go.Figure()
+for cl in valid_clusters_all:
+    cl = int(cl)
+    c = cluster_centers_all.loc[cl]
+    color = cluster_colors[cl % len(cluster_colors)]
+    n_cl = len(df_valid_all[df_valid_all['cluster'] == cl])
+    vals = [c[f'diff_{e}'] for e in emotion_categories]
+    fig_radar_all.add_trace(go.Scatterpolar(
+        r=vals + [vals[0]], theta=radar_categories, fill='toself',
+        name=f'Cluster {cl} (n={n_cl})',
+        line=dict(color=color), opacity=0.3))
+fig_radar_all.add_trace(go.Scatterpolar(
+    r=[0.01] * len(radar_categories), theta=radar_categories,
+    mode='lines', line=dict(color='red', width=2, dash='dash'),
+    name='差分=0', showlegend=True))
+fig_radar_all.update_layout(**make_radar_layout(
+    f'All Data — Diff Radar (n={len(df_valid_all)})'))
+fig_radar_all.write_html(output_dir / 'all_diff_radar.html')
+
+# ユーザー評点箱ひげ図
+df_research = pd.read_csv(config.DATA_DIR / 'real_research.csv', on_bad_lines='warn')
+df_research['userId'] = df_research['userId'].astype(str)
+df_ratings = df_research[['userId'] + RATING_COLS].copy()
+for col in RATING_COLS:
+    df_ratings[col] = pd.to_numeric(df_ratings[col], errors='coerce')
+df_valid_all_r = df_valid_all.merge(df_ratings, on='userId', how='left')
+
+fig_rating_all = go.Figure()
+for cl in valid_clusters_all:
+    subset = df_valid_all_r[df_valid_all_r['cluster'] == cl]
+    color = cluster_colors[cl % len(cluster_colors)]
+    for ri, rc in enumerate(RATING_COLS):
+        fig_rating_all.add_trace(go.Box(
+            y=subset[rc], name=RATING_LABELS.get(rc, rc),
+            marker_color=color, legendgroup=f'cl{cl}',
+            legendgrouptitle_text=f'Cluster {cl}' if ri == 0 else None,
+            showlegend=(ri == 0), offsetgroup=f'cl{cl}',
+            boxmean=True))
+fig_rating_all.update_layout(
+    title=dict(text='All Data — Diff ユーザー評点分布 / 用户评分分布', x=0.5, font=dict(size=18)),
+    yaxis_title='評点 / 评分', boxmode='group',
+    width=1300, height=700, paper_bgcolor='white', plot_bgcolor='white',
+    margin=dict(l=60, r=60, t=100, b=60),
+    legend=dict(font=dict(size=10), x=0.5, y=-0.08, orientation='h', xanchor='center'))
+fig_rating_all.write_html(output_dir / 'all_diff_rating_boxplot.html')
+
+# 感情差分ジッタープロット
+n_cl_all = len(valid_clusters_all)
+fig_jitter_all = make_subplots(
+    rows=1, cols=n_cl_all,
+    subplot_titles=[f'Cluster {cl} (n={len(df_valid_all[df_valid_all["cluster"]==cl])})'
+                    for cl in valid_clusters_all],
+    horizontal_spacing=0.06
+)
+all_diffs_all = []
+for ci, cl in enumerate(valid_clusters_all):
+    subset = df_valid_all[df_valid_all['cluster'] == cl]
+    color = cluster_colors[cl % len(cluster_colors)]
+    means, mins, maxs = [], [], []
+    for ei, emo in enumerate(emotion_categories):
+        diffs = subset[f'diff_{emo}'].values
+        all_diffs_all.extend(diffs)
+        jitter_x = np.full(len(diffs), ei) + np.random.uniform(-0.15, 0.15, len(diffs))
+        fig_jitter_all.add_trace(go.Scatter(
+            x=jitter_x, y=diffs, mode='markers',
+            marker=dict(size=4, color=color, opacity=0.4),
+            name=f'Cluster {cl}' if ei == 0 else None,
+            legendgroup=f'cl{cl}', showlegend=(ei == 0),
+            hovertext=[f'{emo}: {d:.3f}' for d in diffs], hoverinfo='text'
+        ), row=1, col=ci + 1)
+        means.append(np.mean(diffs))
+        mins.append(np.min(diffs))
+        maxs.append(np.max(diffs))
+    stat_configs = [
+        (means, 'solid', 'Mean', True),
+        (mins, 'dot', 'Min', False),
+        (maxs, 'dash', 'Max', False),
+    ]
+    for stat_vals, dash, lbl, show_leg in stat_configs:
+        fig_jitter_all.add_trace(go.Scatter(
+            x=list(range(len(emotion_categories))), y=stat_vals,
+            mode='lines+markers', marker=dict(size=5),
+            line=dict(color=color, width=2, dash=dash),
+            name=f'C{cl} {lbl}',
+            legendgroup=f'cl{cl}', showlegend=show_leg
+        ), row=1, col=ci + 1)
+jitter_bound_all = np.ceil(max(abs(np.min(all_diffs_all)), abs(np.max(all_diffs_all))) * 10) / 10
+fig_jitter_all.update_xaxes(
+    tickvals=list(range(len(emotion_categories))),
+    ticktext=emotion_labels, tickangle=-45
+)
+for ci in range(n_cl_all):
+    fig_jitter_all.add_hline(y=0, line_dash='dash', line_color='red',
+                             line_width=2, opacity=0.7, row=1, col=ci + 1)
+fig_jitter_all.update_layout(
+    title=dict(text='All Data — 感情差分ジッタープロット', x=0.5, font=dict(size=18)),
+    yaxis_title='差分値 (reply - input)',
+    width=max(400 * n_cl_all, 800), height=600,
+    paper_bgcolor='white', plot_bgcolor='white',
+    margin=dict(l=60, r=60, t=100, b=100),
+    legend=dict(font=dict(size=10), x=0.5, y=-0.2, orientation='h', xanchor='center')
+)
+for ci in range(n_cl_all):
+    axis_key = f'yaxis{ci + 1}' if ci > 0 else 'yaxis'
+    fig_jitter_all.update_layout(**{axis_key: dict(range=[-jitter_bound_all, jitter_bound_all])})
+fig_jitter_all.write_html(output_dir / 'all_diff_jitter.html')
+
+# --- Stats Bar Chart ---
+fig_stats_all = make_subplots(
+    rows=2, cols=2,
+    subplot_titles=['Mean', 'Max', 'Min', 'Standard Deviation'],
+    horizontal_spacing=0.1, vertical_spacing=0.15
+)
+stats_all_vals = []
+for cl in valid_clusters_all:
+    subset = df_valid_all[df_valid_all['cluster'] == cl]
+    color = cluster_colors[cl % len(cluster_colors)]
+    stat_means, stat_maxs, stat_mins, stat_sds = [], [], [], []
+    for emo in emotion_categories:
+        diffs = subset[f'diff_{emo}'].values
+        stat_means.append(np.mean(diffs))
+        stat_maxs.append(np.max(diffs))
+        stat_mins.append(np.min(diffs))
+        stat_sds.append(np.std(diffs))
+    stats_all_vals.extend(stat_means + stat_maxs + stat_mins + stat_sds)
+    for vals, row, col, stat_name in [
+        (stat_means, 1, 1, 'mean'), (stat_maxs, 1, 2, 'max'),
+        (stat_mins, 2, 1, 'min'), (stat_sds, 2, 2, 'sd'),
+    ]:
+        fig_stats_all.add_trace(go.Bar(
+            x=emotion_labels, y=vals, marker_color=color,
+            name=f'Cluster {cl}', legendgroup=f'cl{cl}',
+            showlegend=(stat_name == 'mean')
+        ), row=row, col=col)
+stats_bound_all = np.ceil(max(abs(np.min(stats_all_vals)), abs(np.max(stats_all_vals))) * 10) / 10
+for r, c in [(1, 1), (1, 2), (2, 1), (2, 2)]:
+    fig_stats_all.add_hline(y=0, line_dash='dash', line_color='red',
+                            line_width=2, opacity=0.7, row=r, col=c)
+fig_stats_all.update_layout(
+    title=dict(text='All Data — Diff クラスタ別統計比較', x=0.5, font=dict(size=18)),
+    yaxis_title='差分値', yaxis3_title='差分値',
+    yaxis=dict(range=[-stats_bound_all, stats_bound_all]),
+    yaxis2=dict(range=[-stats_bound_all, stats_bound_all]),
+    yaxis3=dict(range=[-stats_bound_all, stats_bound_all]),
+    yaxis4=dict(range=[-stats_bound_all, stats_bound_all]),
+    barmode='group',
+    width=1200, height=900,
+    paper_bgcolor='white', plot_bgcolor='white',
+    margin=dict(l=60, r=60, t=100, b=60),
+    legend=dict(font=dict(size=10), x=0.5, y=-0.05, orientation='h', xanchor='center')
+)
+fig_stats_all.write_html(output_dir / 'all_diff_cluster_stats.html')
+
+# クラスタ内トピック分布
+if 'topic' in df_all.columns:
+    ct_all = pd.crosstab(df_all['cluster'], df_all['topic'])
+    ct_norm_all = ct_all.div(ct_all.sum(axis=1), axis=0)
+    fig_ct_all = go.Figure()
+    for tp in sorted(ct_norm_all.columns):
+        fig_ct_all.add_trace(go.Bar(
+            x=[f'Cluster {cl}' for cl in ct_norm_all.index],
+            y=ct_norm_all[tp].values,
+            name=f'Topic {tp}',
+            marker_color=topic_colors[tp % len(topic_colors)]))
+    fig_ct_all.update_layout(
+        title=dict(text='All Data — Cluster内Topic分布 / Topic分布within Cluster',
+                   x=0.5, font=dict(size=18)),
+        barmode='stack', xaxis_title='Cluster', yaxis_title='Proportion',
+        paper_bgcolor='white', plot_bgcolor='white',
+        width=1000, height=600,
+        legend=dict(font=dict(size=10), x=0.5, y=-0.15, orientation='h', xanchor='center'),
+        margin=dict(l=60, r=60, t=100, b=80))
+    fig_ct_all.write_html(output_dir / 'all_topic_cluster_distribution.html')
 
 df_all.to_csv(output_dir / 'all_diff_clusters.csv', index=False, encoding='utf-8-sig')
 cluster_centers_all.to_csv(output_dir / 'all_diff_centers.csv', encoding='utf-8-sig')
