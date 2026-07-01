@@ -18,6 +18,17 @@ import config
 import warnings
 warnings.filterwarnings("ignore")
 
+# === 統一サイズ定義 / Unified figure sizes ===
+FIG_W, FIG_H = 1200, 700
+FIG_WIDE_W, FIG_WIDE_H = 1400, 700
+
+
+def export_fig(fig, base_path):
+    """plotly の fig を HTML + SVG の2形式で出力"""
+    fig.write_html(str(base_path) + '.html')
+    fig.write_image(str(base_path) + '.svg', width=FIG_WIDE_W, height=FIG_WIDE_H, scale=1)
+
+
 # 输出目录 / 出力ディレクトリ
 SENTIMENT_DIR = config.DATA_DIR / "sentiment"
 SENTIMENT_DIR.mkdir(exist_ok=True)
@@ -363,10 +374,10 @@ def create_charts(conv_df, output_dirname='charts_wrime'):
         fig.update_xaxes(title_text='对话序号/やり取り番号', row=2, col=1, tickvals=x_positions, range=[0.3, n + 0.7])
         fig.update_yaxes(title_text='情感分数/点数', row=2, col=1, range=y_range, showgrid=True, gridcolor='#f0f0f0')
 
-        output_path = charts_dir / f'user_{short_id}.html'
-        fig.write_html(output_path)
+        output_path = charts_dir / f'user_{short_id}'
+        export_fig(fig, output_path)
         generated_files.append(output_path)
-        print(f"  {output_path.name}")
+        print(f"  {output_path.name}.html")
 
     print(f"\n共生成 {len(generated_files)} 个图表，保存至: {charts_dir} / {len(generated_files)} 個のグラフを生成、保存先: {charts_dir}")
     return generated_files

@@ -5,6 +5,7 @@ unidic-lite==1.0.8
 numpy==2.4.4
 pandas==3.0.2
 plotly==6.7.0
+matplotlib==3.11.0
 scikit-learn==1.8.0
 hdbscan==0.8.43
 sentence-transformers==5.5.0

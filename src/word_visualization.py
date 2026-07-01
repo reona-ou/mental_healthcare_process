@@ -3,6 +3,16 @@ import numpy as np
 import plotly.graph_objects as go
 import config
 
+# === 統一サイズ定義 / Unified figure sizes ===
+FIG_W, FIG_H = 1200, 700
+FIG_WIDE_W, FIG_WIDE_H = 1400, 700
+
+
+def export_fig(fig, base_path):
+    """plotly の fig を HTML + SVG の2形式で出力"""
+    fig.write_html(str(base_path) + '.html')
+    fig.write_image(str(base_path) + '.svg', width=FIG_WIDE_W, height=FIG_WIDE_H, scale=1)
+
 
 
 # 分类函数：判断单词属于哪一类
@@ -180,8 +190,9 @@ def build_scatter_plot(df_mochiko, df_pen_sensei, title_suffix, output_filename)
 
     # 保存 / 保存
     output_file = config.DATA_DIR / 'word_counts' / output_filename
-    fig.write_html(output_file)
-    print(f"已保存至: {output_file}")
+    base = str(output_file).replace('.html', '')
+    export_fig(fig, base)
+    print(f"已保存至: {base}.html")
 
 
 
@@ -291,8 +302,9 @@ def build_bar_chart(csv_path, title_suffix, output_filename, top_n=30):
     )
 
     output_file = config.DATA_DIR / 'word_counts' / output_filename
-    fig.write_html(output_file)
-    print(f"已保存至: {output_file}")
+    base = str(output_file).replace('.html', '')
+    export_fig(fig, base)
+    print(f"已保存至: {base}.html")
 
 
 # input 用データのパス定義 / input 数据路径定义

@@ -2,10 +2,13 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import silhouette_score
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 from sklearn.manifold import TSNE
 import umap
 import hdbscan
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import warnings
@@ -68,6 +71,19 @@ RATING_LABELS = {
     'shikafannshi': 'シカファンシー（ユーザーを過度に持ち上げるあまり嘘をつくような発言）'
 }
 
+# === 統一サイズ定義 / Unified figure sizes ===
+FIG_W, FIG_H = 1200, 700          # 標準
+FIG_WIDE_W, FIG_WIDE_H = 1400, 700  # 箱ひげ図・レーダー
+FIG_LARGE_W, FIG_LARGE_H = 1400, 800  # 統計バー
+FIG_CONDTree_W, FIG_CONDTree_H = 16, 8  # matplotlib inches
+FIG_DPI = 150
+
+# SVG/PNG エクスポート用の共通ヘルパー
+def export_fig(fig, base_path):
+    """plotly の fig を HTML + SVG の2形式で出力"""
+    fig.write_html(str(base_path) + '.html')
+    fig.write_image(str(base_path) + '.svg', width=FIG_WIDE_W, height=FIG_WIDE_H, scale=1)
+
 
 def make_hover_text(row):
     return (f"session: {row['session_id']}<br>"
@@ -85,6 +101,17 @@ def make_radar_layout(title, width=1400, height=700):
         legend=dict(font=dict(size=10), x=0.5, y=-0.1, orientation='h', xanchor='center'),
         margin=dict(l=80, r=80, t=100, b=80),
     )
+
+
+def plot_condensed_tree(clusterer, title, output_path):
+    """HDBSCAN の凝縮樹図を matplotlib で描画する"""
+    fig, ax = plt.subplots(figsize=(16, 8))
+    clusterer.condensed_tree_.plot(axis=ax)
+    ax.set_title(title, fontsize=16)
+    plt.tight_layout()
+    fig.savefig(str(output_path) + '.svg', dpi=300)
+    plt.close(fig)
+    print(f"  凝縮樹図 / 凝缩树图: {output_path}.svg")
 
 
 def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
@@ -118,7 +145,8 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
         X_umap = reducer.fit_transform(X_scaled)
         print(f"\n  UMAP: {umap_dim}D (nn={nn}, md={md}, cosine)")
 
-        labels = hdbscan.HDBSCAN(min_cluster_size=config.CLUSTER_HDBSCAN_MIN_CLUSTER_SIZE, min_samples=config.CLUSTER_HDBSCAN_MIN_SAMPLES, prediction_data=True).fit_predict(X_umap)
+        clusterer = hdbscan.HDBSCAN(min_cluster_size=config.CLUSTER_HDBSCAN_MIN_CLUSTER_SIZE, min_samples=config.CLUSTER_HDBSCAN_MIN_SAMPLES, prediction_data=True)
+        labels = clusterer.fit_predict(X_umap)
 
         df_cat = df_cat.copy()
         df_cat['umap_0'] = X_umap[:, 0]
@@ -131,11 +159,19 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
     mask = labels != -1
 
     if not has_clusters:
-        sil = silhouette_score(X_umap[mask], labels[mask]) if n_clusters >= 2 and mask.sum() >= 20 else -1
+        if n_clusters >= 2 and mask.sum() >= 20:
+            sil = silhouette_score(X_umap[mask], labels[mask])
+            ch = calinski_harabasz_score(X_umap[mask], labels[mask])
+            dbi = davies_bouldin_score(X_umap[mask], labels[mask])
+        else:
+            sil, ch, dbi = -1, -1, -1
         print(f"  HDBSCAN: {n_clusters}クラスタ, ノイズ / 噪声 {noise}件 ({noise/len(df_cat)*100:.1f}%)")
-        print(f"  Silhouette: {sil:.4f}")
-        for cl in sorted(unique - {-1}):
-            print(f"    Cluster {cl}: {(labels == cl).sum()}件")
+        print(f"  Silhouette: {sil:.4f}  (越高越好 / 高いほど良い, 1.0=完美)")
+        print(f"  Calinski-Harabasz: {ch:.2f}  (越高越好 / 高いほど良い)")
+        print(f"  Davies-Bouldin: {dbi:.4f}  (越低越好 / 低いほど良い, 0=完美)")
+        print(f"  Cluster Persistence: {clusterer.cluster_persistence_.round(4).tolist()}")
+        for ci, cl in enumerate(sorted(unique - {-1})):
+            print(f"    Cluster {cl}: {(labels == cl).sum()}件, persistence={clusterer.cluster_persistence_[ci]:.4f}")
         if noise > 0:
             print(f"    Noise: {noise}件")
 
@@ -198,13 +234,22 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
         paper_bgcolor='white', margin=dict(l=60, r=60, t=100, b=60))
     if dim >= 3:
         layout_kw.update(scene=dict(xaxis_title='Dim 1', yaxis_title='Dim 2', zaxis_title='Dim 3',
-                                    bgcolor='white', aspectmode='cube'),
-                         width=1000, height=800)
+                                     bgcolor='white', aspectmode='cube'),
+                         width=FIG_W, height=FIG_H)
     else:
         layout_kw.update(xaxis_title='UMAP Dim 1', yaxis_title='UMAP Dim 2',
-                         plot_bgcolor='white', width=900, height=700)
+                         plot_bgcolor='white', width=FIG_W, height=FIG_H)
     fig_scatter.update_layout(**layout_kw)
-    fig_scatter.write_html(output_dir / f'category{cat_label}_diff_umap_{dim}d.html')
+    base = output_dir / f'category{cat_label}_diff_umap_{dim}d'
+    export_fig(fig_scatter, base)
+
+    # 凝縮樹図 (Condensed Tree) / 凝缩树图
+    if not has_clusters and hasattr(clusterer, 'condensed_tree_'):
+        plot_condensed_tree(
+            clusterer,
+            f'Category {cat_label} — HDBSCAN Condensed Tree',
+            output_dir / f'category{cat_label}_diff_condensed_tree',
+        )
 
     # t-SNE (元空間で確認 / 原始空间确认)
     X_tsne = TSNE(n_components=2, random_state=config.CLUSTER_RANDOM_SEED,
@@ -225,9 +270,9 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
         title=dict(text=f'Category {cat_label} — Diff t-SNE (all data clustering)',
                    x=0.5, font=dict(size=18)),
         xaxis_title='t-SNE 1', yaxis_title='t-SNE 2',
-        width=900, height=700, plot_bgcolor='white', paper_bgcolor='white',
+        width=FIG_W, height=FIG_H, plot_bgcolor='white', paper_bgcolor='white',
         margin=dict(l=60, r=60, t=100, b=60))
-    fig_tsne.write_html(output_dir / f'category{cat_label}_diff_tsne.html')
+    export_fig(fig_tsne, output_dir / f'category{cat_label}_diff_tsne')
 
     # レーダーチャート (差分バージョン)
     valid_clusters = sorted(df_valid['cluster'].unique())
@@ -247,8 +292,9 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
         mode='lines', line=dict(color='red', width=2, dash='dash'),
         name='差分=0', showlegend=True))
     fig_radar.update_layout(**make_radar_layout(
-        f'Category {cat_label} — Diff Radar (n={len(df_valid)})'))
-    fig_radar.write_html(output_dir / f'category{cat_label}_diff_radar.html')
+        f'Category {cat_label} — Diff Radar (n={len(df_valid)})',
+        width=FIG_WIDE_W, height=FIG_WIDE_H))
+    export_fig(fig_radar, output_dir / f'category{cat_label}_diff_radar')
 
     # ユーザー評点箱ひげ図 (平均値付き) / 用户评分箱线图 (含均值)
     fig_rating = go.Figure()
@@ -265,10 +311,10 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
     fig_rating.update_layout(
         title=dict(text=f'Category {cat_label} — Diff ユーザー評点分布 / 用户评分分布', x=0.5, font=dict(size=18)),
         yaxis_title='評点 / 评分', boxmode='group',
-        width=1300, height=700, paper_bgcolor='white', plot_bgcolor='white',
+        width=FIG_WIDE_W, height=FIG_WIDE_H, paper_bgcolor='white', plot_bgcolor='white',
         margin=dict(l=60, r=60, t=100, b=60),
         legend=dict(font=dict(size=10), x=0.5, y=-0.08, orientation='h', xanchor='center'))
-    fig_rating.write_html(output_dir / f'category{cat_label}_diff_rating_boxplot.html')
+    export_fig(fig_rating, output_dir / f'category{cat_label}_diff_rating_boxplot')
 
     # 感情差分ジッタープロット
     n_cl_rt = len(valid_clusters)
@@ -322,7 +368,7 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
         title=dict(text=f'Category {cat_label} — 感情差分ジッタープロット',
                    x=0.5, font=dict(size=18)),
         yaxis_title='差分値 (reply - input)',
-        width=max(400 * n_cl_rt, 800), height=600,
+        width=max(400 * n_cl_rt, FIG_W), height=FIG_H,
         paper_bgcolor='white', plot_bgcolor='white',
         margin=dict(l=60, r=60, t=100, b=100),
         legend=dict(font=dict(size=10), x=0.5, y=-0.2, orientation='h', xanchor='center')
@@ -330,7 +376,7 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
     for ci in range(n_cl_rt):
         axis_key = f'yaxis{ci + 1}' if ci > 0 else 'yaxis'
         fig_jitter.update_layout(**{axis_key: dict(range=[-jitter_bound, jitter_bound])})
-    fig_jitter.write_html(output_dir / f'category{cat_label}_diff_jitter.html')
+    export_fig(fig_jitter, output_dir / f'category{cat_label}_diff_jitter')
 
     # --- Stats Bar Chart ---
     fig_stats = make_subplots(
@@ -372,12 +418,12 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
         yaxis3=dict(range=[-stats_bound, stats_bound]),
         yaxis4=dict(range=[-stats_bound, stats_bound]),
         barmode='group',
-        width=1200, height=900,
+        width=FIG_LARGE_W, height=FIG_LARGE_H,
         paper_bgcolor='white', plot_bgcolor='white',
         margin=dict(l=60, r=60, t=100, b=60),
         legend=dict(font=dict(size=10), x=0.5, y=-0.05, orientation='h', xanchor='center')
     )
-    fig_stats.write_html(output_dir / f'category{cat_label}_diff_cluster_stats.html')
+    export_fig(fig_stats, output_dir / f'category{cat_label}_diff_cluster_stats')
 
     # クラスタ内トピック分布 / cluster内topic分布
     if 'topic' in df_cat.columns:
@@ -397,10 +443,10 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
                        x=0.5, font=dict(size=18)),
             barmode='stack', xaxis_title='Cluster', yaxis_title='Proportion',
             paper_bgcolor='white', plot_bgcolor='white',
-            width=1000, height=600,
+            width=FIG_W, height=FIG_H,
             legend=dict(font=dict(size=10), x=0.5, y=-0.15, orientation='h', xanchor='center'),
             margin=dict(l=60, r=60, t=100, b=80))
-        fig_ct.write_html(output_dir / f'category{cat_label}_topic_cluster_distribution.html')
+        export_fig(fig_ct, output_dir / f'category{cat_label}_topic_cluster_distribution')
 
         print(f"\n  Cluster x Topic 交叉集計:")
         print(ct.to_string())
@@ -429,7 +475,8 @@ reducer = umap.UMAP(
 X_umap_all = reducer.fit_transform(X_scaled_all)
 print(f"\nUMAP: 2D (nn={config.CLUSTER_UMAP_N_NEIGHBORS}, md={config.CLUSTER_UMAP_MIN_DIST}, cosine)")
 
-labels_all = hdbscan.HDBSCAN(min_cluster_size=config.CLUSTER_HDBSCAN_MIN_CLUSTER_SIZE, min_samples=config.CLUSTER_HDBSCAN_MIN_SAMPLES, prediction_data=True).fit_predict(X_umap_all)
+clusterer_all = hdbscan.HDBSCAN(min_cluster_size=config.CLUSTER_HDBSCAN_MIN_CLUSTER_SIZE, min_samples=config.CLUSTER_HDBSCAN_MIN_SAMPLES, prediction_data=True)
+labels_all = clusterer_all.fit_predict(X_umap_all)
 
 df_all['umap_0'] = X_umap_all[:, 0]
 df_all['umap_1'] = X_umap_all[:, 1]
@@ -441,11 +488,16 @@ noise_all = int((labels_all == -1).sum())
 mask_all = labels_all != -1
 
 sil_all = silhouette_score(X_umap_all[mask_all], labels_all[mask_all]) if n_clusters_all >= 2 and mask_all.sum() >= 20 else -1
+ch_all = calinski_harabasz_score(X_umap_all[mask_all], labels_all[mask_all]) if n_clusters_all >= 2 and mask_all.sum() >= 20 else -1
+dbi_all = davies_bouldin_score(X_umap_all[mask_all], labels_all[mask_all]) if n_clusters_all >= 2 and mask_all.sum() >= 20 else -1
 
 print(f"\nHDBSCAN: {n_clusters_all}クラスタ, ノイズ / 噪声 {noise_all}件 ({noise_all/len(df_all)*100:.1f}%)")
-print(f"Silhouette: {sil_all:.4f}")
-for cl in sorted(unique_all - {-1}):
-    print(f"  Cluster {cl}: {(labels_all == cl).sum()}件")
+print(f"Silhouette: {sil_all:.4f}  (越高越好 / 高いほど良い, 1.0=完美)")
+print(f"Calinski-Harabasz: {ch_all:.2f}  (越高越好 / 高いほど良い)")
+print(f"Davies-Bouldin: {dbi_all:.4f}  (越低越好 / 低いほど良い, 0=完美)")
+print(f"Cluster Persistence: {clusterer_all.cluster_persistence_.round(4).tolist()}")
+for ci, cl in enumerate(sorted(unique_all - {-1})):
+    print(f"  Cluster {cl}: {(labels_all == cl).sum()}件, persistence={clusterer_all.cluster_persistence_[ci]:.4f}")
 if noise_all > 0:
     print(f"  Noise: {noise_all}件")
 
@@ -482,8 +534,15 @@ fig_scatter_all.update_layout(
     title=dict(text=f'All Data — Diff UMAP 2D cosine (Sil={sil_all:.3f})', x=0.5, font=dict(size=18)),
     xaxis_title='UMAP Dim 1', yaxis_title='UMAP Dim 2',
     paper_bgcolor='white', plot_bgcolor='white',
-    width=1000, height=800, margin=dict(l=60, r=60, t=100, b=60))
-fig_scatter_all.write_html(output_dir / 'all_diff_umap_2d.html')
+    width=FIG_W, height=FIG_H, margin=dict(l=60, r=60, t=100, b=60))
+export_fig(fig_scatter_all, output_dir / 'all_diff_umap_2d')
+
+# 凝縮樹図 (Condensed Tree) / 凝缩树图
+plot_condensed_tree(
+    clusterer_all,
+    'All Data — HDBSCAN Condensed Tree',
+    output_dir / 'all_diff_condensed_tree',
+)
 
 # t-SNE
 X_tsne_all = TSNE(n_components=2, random_state=config.CLUSTER_RANDOM_SEED,
@@ -503,9 +562,9 @@ for cl in sorted(unique_all):
 fig_tsne_all.update_layout(
     title=dict(text='All Data — Diff t-SNE (all data clustering)', x=0.5, font=dict(size=18)),
     xaxis_title='t-SNE 1', yaxis_title='t-SNE 2',
-    width=900, height=700, plot_bgcolor='white', paper_bgcolor='white',
+    width=FIG_W, height=FIG_H, plot_bgcolor='white', paper_bgcolor='white',
     margin=dict(l=60, r=60, t=100, b=60))
-fig_tsne_all.write_html(output_dir / 'all_diff_tsne.html')
+export_fig(fig_tsne_all, output_dir / 'all_diff_tsne')
 
 # レーダーチャート
 valid_clusters_all = sorted(df_valid_all['cluster'].unique())
@@ -525,8 +584,9 @@ fig_radar_all.add_trace(go.Scatterpolar(
     mode='lines', line=dict(color='red', width=2, dash='dash'),
     name='差分=0', showlegend=True))
 fig_radar_all.update_layout(**make_radar_layout(
-    f'All Data — Diff Radar (n={len(df_valid_all)})'))
-fig_radar_all.write_html(output_dir / 'all_diff_radar.html')
+    f'All Data — Diff Radar (n={len(df_valid_all)})',
+    width=FIG_WIDE_W, height=FIG_WIDE_H))
+export_fig(fig_radar_all, output_dir / 'all_diff_radar')
 
 # ユーザー評点箱ひげ図
 df_research = pd.read_csv(config.DATA_DIR / 'real_research.csv', on_bad_lines='warn')
@@ -550,10 +610,10 @@ for cl in valid_clusters_all:
 fig_rating_all.update_layout(
     title=dict(text='All Data — Diff ユーザー評点分布 / 用户评分分布', x=0.5, font=dict(size=18)),
     yaxis_title='評点 / 评分', boxmode='group',
-    width=1300, height=700, paper_bgcolor='white', plot_bgcolor='white',
+    width=FIG_WIDE_W, height=FIG_WIDE_H, paper_bgcolor='white', plot_bgcolor='white',
     margin=dict(l=60, r=60, t=100, b=60),
     legend=dict(font=dict(size=10), x=0.5, y=-0.08, orientation='h', xanchor='center'))
-fig_rating_all.write_html(output_dir / 'all_diff_rating_boxplot.html')
+export_fig(fig_rating_all, output_dir / 'all_diff_rating_boxplot')
 
 # 感情差分ジッタープロット
 n_cl_all = len(valid_clusters_all)
@@ -606,7 +666,7 @@ for ci in range(n_cl_all):
 fig_jitter_all.update_layout(
     title=dict(text='All Data — 感情差分ジッタープロット', x=0.5, font=dict(size=18)),
     yaxis_title='差分値 (reply - input)',
-    width=max(400 * n_cl_all, 800), height=600,
+    width=max(400 * n_cl_all, FIG_W), height=FIG_H,
     paper_bgcolor='white', plot_bgcolor='white',
     margin=dict(l=60, r=60, t=100, b=100),
     legend=dict(font=dict(size=10), x=0.5, y=-0.2, orientation='h', xanchor='center')
@@ -614,7 +674,7 @@ fig_jitter_all.update_layout(
 for ci in range(n_cl_all):
     axis_key = f'yaxis{ci + 1}' if ci > 0 else 'yaxis'
     fig_jitter_all.update_layout(**{axis_key: dict(range=[-jitter_bound_all, jitter_bound_all])})
-fig_jitter_all.write_html(output_dir / 'all_diff_jitter.html')
+export_fig(fig_jitter_all, output_dir / 'all_diff_jitter')
 
 # --- Stats Bar Chart ---
 fig_stats_all = make_subplots(
@@ -655,12 +715,12 @@ fig_stats_all.update_layout(
     yaxis3=dict(range=[-stats_bound_all, stats_bound_all]),
     yaxis4=dict(range=[-stats_bound_all, stats_bound_all]),
     barmode='group',
-    width=1200, height=900,
+    width=FIG_LARGE_W, height=FIG_LARGE_H,
     paper_bgcolor='white', plot_bgcolor='white',
     margin=dict(l=60, r=60, t=100, b=60),
     legend=dict(font=dict(size=10), x=0.5, y=-0.05, orientation='h', xanchor='center')
 )
-fig_stats_all.write_html(output_dir / 'all_diff_cluster_stats.html')
+export_fig(fig_stats_all, output_dir / 'all_diff_cluster_stats')
 
 # クラスタ内トピック分布
 if 'topic' in df_all.columns:
@@ -678,10 +738,10 @@ if 'topic' in df_all.columns:
                    x=0.5, font=dict(size=18)),
         barmode='stack', xaxis_title='Cluster', yaxis_title='Proportion',
         paper_bgcolor='white', plot_bgcolor='white',
-        width=1000, height=600,
+        width=FIG_W, height=FIG_H,
         legend=dict(font=dict(size=10), x=0.5, y=-0.15, orientation='h', xanchor='center'),
         margin=dict(l=60, r=60, t=100, b=80))
-    fig_ct_all.write_html(output_dir / 'all_topic_cluster_distribution.html')
+    export_fig(fig_ct_all, output_dir / 'all_topic_cluster_distribution')
 
 df_all.to_csv(output_dir / 'all_diff_clusters.csv', index=False, encoding='utf-8-sig')
 cluster_centers_all.to_csv(output_dir / 'all_diff_centers.csv', encoding='utf-8-sig')

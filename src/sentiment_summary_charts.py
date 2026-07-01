@@ -17,6 +17,17 @@ EMOTION_COLORS = {
 }
 RADAR_LABELS = [EMOTION_LABELS[e] for e in EMOTIONS] + [EMOTION_LABELS[EMOTIONS[0]]]
 
+# === 統一サイズ定義 / Unified figure sizes ===
+FIG_W, FIG_H = 1200, 700
+FIG_WIDE_W, FIG_WIDE_H = 1400, 700
+FIG_LARGE_W, FIG_LARGE_H = 1400, 800
+
+
+def export_fig(fig, base_path):
+    """plotly の fig を HTML + SVG の2形式で出力"""
+    fig.write_html(str(base_path) + '.html')
+    fig.write_image(str(base_path) + '.svg', width=FIG_WIDE_W, height=FIG_WIDE_H, scale=1)
+
 
 def compute_stats(scores_df):
     """计算各情感的统计指标"""
@@ -50,10 +61,10 @@ def create_dominant_emotion_chart(dominant_counts, title, output_path):
     fig.update_layout(
         title=dict(text=title, x=0.5, font=dict(size=18)),
         xaxis_title='感情 / Emotion', yaxis_title='件数 / Count',
-        width=900, height=600, paper_bgcolor='white', plot_bgcolor='white',
+        width=FIG_W, height=FIG_H, paper_bgcolor='white', plot_bgcolor='white',
         margin=dict(l=60, r=60, t=100, b=60)
     )
-    fig.write_html(output_path)
+    export_fig(fig, output_path.with_suffix(''))
     print(f"  {output_path.name}")
 
 
@@ -70,10 +81,10 @@ def create_radar_chart(stats_df, title, output_path):
     fig.update_layout(
         title=dict(text=title, x=0.5, font=dict(size=18)),
         polar=dict(radialaxis=dict(visible=True, range=[0, 1]), bgcolor='white'),
-        width=900, height=700, paper_bgcolor='white',
+        width=FIG_WIDE_W, height=FIG_WIDE_H, paper_bgcolor='white',
         margin=dict(l=80, r=80, t=100, b=80)
     )
-    fig.write_html(output_path)
+    export_fig(fig, output_path.with_suffix(''))
     print(f"  {output_path.name}")
 
 
@@ -109,11 +120,11 @@ def create_stats_bar_chart(stats_df, title, output_path):
 
     fig.update_layout(
         title=dict(text=title, x=0.5, font=dict(size=18)),
-        width=1400, height=800, paper_bgcolor='white', plot_bgcolor='white',
+        width=FIG_LARGE_W, height=FIG_LARGE_H, paper_bgcolor='white', plot_bgcolor='white',
         margin=dict(l=60, r=60, t=100, b=100),
         legend=dict(font=dict(size=10))
     )
-    fig.write_html(output_path)
+    export_fig(fig, output_path.with_suffix(''))
     print(f"  {output_path.name}")
 
 
@@ -128,10 +139,10 @@ def create_emotion_boxplot(scores_df, title, output_path):
     fig.update_layout(
         title=dict(text=title, x=0.5, font=dict(size=18)),
         yaxis_title='スコア / Score',
-        width=1200, height=600, paper_bgcolor='white', plot_bgcolor='white',
+        width=FIG_WIDE_W, height=FIG_WIDE_H, paper_bgcolor='white', plot_bgcolor='white',
         margin=dict(l=60, r=60, t=100, b=60)
     )
-    fig.write_html(output_path)
+    export_fig(fig, output_path.with_suffix(''))
     print(f"  {output_path.name}")
 
 
