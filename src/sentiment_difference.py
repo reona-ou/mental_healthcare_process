@@ -224,3 +224,129 @@ all_df = pd.DataFrame(all_rows)
 all_path = config.DATA_DIR / "sentiment" / "sentiment_all_diff.csv"
 all_df.to_csv(all_path, index=False, encoding="utf-8-sig")
 print(f"全session差分CSV已保存 / 全session差分CSV保存: {all_path} ({len(all_df)}行)")
+
+# === 全session差分可视化 / 全session差分の可視化 ===
+print("\n全session差分可视化を生成中... / 正在生成全session差分可视化...")
+
+# 计算8个情感维度的统计量 / 8つの感情次元の統計量を計算
+all_stats_results = []
+for stat_name, stat_func in stat_funcs.items():
+    for emo in emotions:
+        diff_col = f"diff_{emo}"
+        if diff_col in all_df.columns:
+            diff_values = all_df[diff_col].values
+            val = stat_func(diff_values)
+            all_stats_results.append({
+                "stat": stat_name,
+                "emotion": emo,
+                "value": val,
+            })
+
+# 转换为DataFrame / DataFrameに変換
+all_stats_df = pd.DataFrame(all_stats_results)
+
+# 保存统计量CSV / 統計量CSVを保存
+all_stats_path = config.DATA_DIR / "sentiment" / "sentiment_all_diff_statistics.csv"
+all_stats_df.to_csv(all_stats_path, index=False, encoding="utf-8-sig")
+print(f"全session统计量CSV已保存 / 全session統計量CSV保存: {all_stats_path} ({len(all_stats_df)}行)")
+
+# 可视化 / 可視化
+if not all_stats_df.empty:
+    # 获取值范围 / 値の範囲を取得
+    all_values = all_stats_df["value"].values
+    vmin = all_values.min()
+    vmax = all_values.max()
+    abs_max = max(abs(vmin), abs(vmax))
+
+    # 创建2行3列的子图 / 2行3列のサブプロットを作成
+    fig = make_subplots(
+        rows=2, cols=3,
+        subplot_titles=[f"{stat}" for stat in vis_stat_order],
+        vertical_spacing=0.12,
+        horizontal_spacing=0.10
+    )
+
+    for idx, stat_name in enumerate(vis_stat_order):
+        row_idx = idx // 3 + 1
+        col_idx = idx % 3 + 1
+
+        stat_data = all_stats_df[all_stats_df["stat"] == stat_name]
+
+        # 构建1×8的矩阵 / 1×8のマトリクスを構築
+        values = []
+        for emo in emotions:
+            val = stat_data[stat_data["emotion"] == emo]["value"].values
+            if len(val) > 0:
+                values.append(val[0])
+            else:
+                values.append(0)
+
+        # 创建条形图 / 棒グラフを作成
+        fig.add_trace(
+            go.Bar(
+                x=emotions,
+                y=values,
+                text=[f"{v:.2f}" for v in values],
+                textposition="auto",
+                textfont=dict(size=10),
+                marker=dict(
+                    colorscale="RdBu_r",
+                    cmin=-abs_max,
+                    cmax=abs_max,
+                    color=values,
+                    showscale=(idx == 0),  # 仅第一个子图显示颜色条 / 最初のサブプロットのみカラーバー表示
+                    colorbar=dict(
+                        title="Value",
+                        thickness=15,
+                        len=0.3,
+                        y=0.5 if idx == 0 else None,
+                    ),
+                ),
+            ),
+            row=row_idx,
+            col=col_idx
+        )
+
+    # 布局设置 / レイアウト設定
+    fig.update_layout(
+        title=dict(
+            text="All Sessions Sentiment Difference Statistics (Reply - Input)",
+            font=dict(size=20),
+            x=0.5,
+            xanchor="center"
+        ),
+        height=800,
+        width=1200,
+        template="plotly_white",
+        showlegend=False,
+        margin=dict(l=80, r=80, t=120, b=80)
+    )
+
+    # 设置各子图的轴标签 / 各サブプロットの軸ラベルを設定
+    for i in range(1, 7):
+        row_idx = (i - 1) // 3 + 1
+        col_idx = (i - 1) % 3 + 1
+        fig.update_xaxes(
+            title_text="Emotion",
+            tickangle=45,
+            tickfont=dict(size=11),
+            title_font=dict(size=13),
+            row=row_idx, col=col_idx
+        )
+        fig.update_yaxes(
+            title_text="Difference Value",
+            tickfont=dict(size=11),
+            title_font=dict(size=13),
+            row=row_idx, col=col_idx
+        )
+
+    # 调整子图标题的字体大小 / サブプロットタイトルのフォントサイズ調整
+    for annotation in fig.layout.annotations:
+        annotation.font.size = 14
+
+    # 保存为HTML+SVG / HTML+SVGとして保存
+    vis_dir = output_dir / "visualizations"
+    vis_dir.mkdir(parents=True, exist_ok=True)
+    base = vis_dir / "all_sessions_statistics"
+    export_fig(fig, base)
+    print(f"全session可视化已保存 / 全session可視化保存: {base}.html")

@@ -7,7 +7,7 @@
 *.njsproj
 *.sln
 *.swp
-
+AGENTS.md
 # 忽略 Python 运行产生的缓存文件
 __pycache__/
 *.pyc

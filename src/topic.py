@@ -38,77 +38,110 @@ PUNCTUATION_POS = {"補助記号", "記号", "助詞", "助動詞", "接続詞",
 # シードトピック（BERTopic 半監督モード用）
 # 負面カテゴリ: 詐欺・浮気・DV・離婚・自殺等の极端ケースのみ
 SEED_TOPICS = [
-    # 離婚・別離
-    ["離婚", "別れたい", "別居", "親権", "離婚届", "離婚を考え", "結婚を終わら"],
-    # 浮気・不倫
-    ["浮気", "不倫", "愛人", "二股", "浮気相手", "不倫相手"],
-    # 流産・妊娠問題
-    ["流産", "死産", "妊娠中絶"],
-    # 詐欺・被害
-    ["詐欺", "フィッシング", "騙されて", "騙す"],
-    # DV・暴力
-    ["DV", "暴力", "暴行", "傷害", "殴", "蹴", "脅", "叩", "暴言", "怒鳴"],
-    # モラハラ
-    ["モラハラ", "モラルハラスメント", "パワハラ"],
-    # 自殺・自傷
-    ["死にたい", "消えたい", "自殺", "死のう", "生きる意味", "いらない", "終わらせたい", "死ねない", "死なない", "死にきれ"],
+    # 離婚・別離（より具体的なキーワード）
+    ["離婚", "別れたい", "別居", "親権", "離婚届", "離婚を考え", "結婚を終わら", "離婚したい", "離婚する", "離婚の相談"],
+    # 浮気・不倫（より具体的なキーワード）
+    ["浮気", "不倫", "愛人", "二股", "浮気相手", "不倫相手", "浮気された", "浮気している", "不貞行為"],
+    # 流産・妊娠問題（より具体的なキーワード）
+    ["流産", "死産", "妊娠中絶", "中絶", "流産した", "流産の心配"],
+    # 詐欺・被害（より具体的なキーワード）
+    ["詐欺", "フィッシング", "騙されて", "騙す", "詐欺に遭った", "詐欺被害", "詐欺まき"],
+    # DV・暴力（より具体的なキーワード）
+    ["DV", "dv", "Dv", "暴力", "暴行", "傷害", "殴", "蹴", "脅", "叩", "暴言", "怒鳴", "ドメスティックバイオレンス"],
+    # モラハラ（より具体的なキーワード）
+    ["モラハラ", "モラルハラスメント", "パワハラ", "精神的な虐待"],
+    # 自殺・自傷（より具体的なキーワード）
+    ["死にたい", "消えたい", "自殺", "死のう", "生きる意味", "いらない", "終わらせたい", "死ねない", "死なない", "死にきれ", "自殺したい", "命を絶ちたい"],
 ]
 
 # パターンベース検出用のキーワード組み合わせ（2カテゴリ分類用）
 # 負面カテゴリ: 詐欺・浮気・DV・離婚等の极端ケースのみ
 PATTERN_COMBOS = [
-    # 離婚別離パターン
+    # 離婚別離パターン（より严格的な条件）
     {
         "name": "離婚別離",
-        "required": [["離婚", "別居", "親権", "離婚届", "調停", "弁護士"]],
-        "context": ["夫", "妻", "旦那", "主人", "パートナー"],
+        "required": [["離婚", "別居", "親権", "離婚届", "調停", "弁護士", "離婚したい", "離婚する"]],
+        "context": ["夫", "妻", "旦那", "主人", "パートナー", "彼氏", "彼女"],
     },
-    # 浮気不倫パターン
+    # 浮気不倫パターン（より严格的な条件）
     {
         "name": "浮気不倫",
-        "required": [["浮気", "不倫", "愛人", "二股", "不貞"]],
-        "context": ["夫", "妻", "旦那", "主人", "彼", "パートナー"],
+        "required": [["浮気", "不倫", "愛人", "二股", "不貞", "浮気された", "不貞行為"]],
+        "context": ["夫", "妻", "旦那", "主人", "彼", "パートナー", "彼氏", "彼女"],
     },
-    # 流産妊娠問題パターン
+    # 夫以外の幸せパターン（夫以外の人との関係性を示唆）
     {
-        "name": "流産妊娠問題",
-        "required": [["流産", "死産", "中絶", "妊娠中絶"]],
+        "name": "夫以外の幸せ",
+        "required": [["夫以外", "他の人", "別の男性", "別の人の"]],
+        "context": ["幸せ", "恋", "気持ち", "好き", "愛"],
+    },
+    # 夫隠しパターン（夫に隠す・見つかると怖い → 浮気・秘密の示唆）
+    {
+        "name": "夫隠し",
+        "required": [["夫に見つかったら怖い", "見つかったら怖い", "夫に内緒", "夫にバレると怖い", "隠してる", "隠してた"]],
         "context": [],
     },
-    # ロマンス詐欺パターン（SNS + 海外 + お金）
+    # 外国人詐欺パターン（外国の友人・知り合いで夫より信頼 → ロマンス詐欺示唆）
+    {
+        "name": "外国人詐欺",
+        "required": [["外国", "外国人", "海外の人", "フィリピン", "アメリカ", "イギリス"]],
+        "context": ["信頼", "夫より", "優しい", "理解", "相談", "援助"],
+    },
+    # 退役軍人詐欺パターン（SNSなしでも検出）
+    {
+        "name": "退役軍人詐欺",
+        "required": [["退役軍人", "軍人"]],
+        "context": ["貸", "お金", "返す", "会いに来る", "送金"],
+    },
+    # 流産妊娠問題パターン（より严格的な条件）
+    {
+        "name": "流産妊娠問題",
+        "required": [["流産", "死産", "中絶", "妊娠中絶", "流産した", "流産の心配"]],
+        "context": [],
+    },
+    # ロマンス詐欺パターン（SNS + 海外 + お金、もしくは退役軍人+お金）
     {
         "name": "ロマンス詐欺",
-        "required": [["Facebook", "facebook", "フェイスブック", "SNS", "LINE", "インスタ", "Instagram", "Twitter", "ツイッター", "マッチング", "matching"]],
-        "context": ["海外", "外国", "貸", "送金", "お金", "投資", "返す"],
+        "required": [
+            ["Facebook", "facebook", "フェイスブック", "SNS", "LINE", "インスタ", "Instagram", "Twitter", "ツイッター", "マッチング", "matching"],
+            ["退役軍人", "軍人"],
+        ],
+        "context": ["海外", "外国", "貸", "送金", "お金", "投資", "返す", "詐欺", "騙された", "会いに来る"],
     },
     # 海外関係 + お金のやり取り（SNSなしでも検出）
     {
         "name": "海外金銭",
         "required": [["海外", "外国"]],
-        "context": ["貸", "送金", "お金", "投資", "返す", "資金", "融資", "知り合", "出会"],
+        "context": ["貸", "送金", "お金", "投資", "返す", "資金", "融資", "知り合", "出会", "詐欺", "騙された"],
     },
     # 詐欺パターン（登録だけでお金、ベビーモデル、掲載料等）
     {
         "name": "詐欺",
-        "required": [["詐欺", "フィッシング", "登録するだけで", "月々数万", "掲載料", "ベビーモデル"]],
+        "required": [["詐欺", "フィッシング", "登録するだけで", "月々数万", "掲載料", "ベビーモデル", "詐欺に遭った", "詐欺被害"]],
         "context": [],
     },
-    # DV暴力パターン
+    # 金銭トラブルパターン（融資・投資・借金などの詐欺的勧誘）
+    {
+        "name": "金銭トラブル",
+        "required": [["融資", "資金を持ちかけ", "投資", "借りる", "貸す", "借金"]],
+        "context": ["多額", "大金", "ほとんど", "消える", "怪しい", "詐欺", "騙", "不安"],
+    },
+    # DV暴力パターン（より严格的な条件）
     {
         "name": "DV暴力",
-        "required": [["DV", "暴力", "暴行", "傷害", "殴", "蹴", "脅", "叩", "暴言", "怒鳴"]],
-        "context": ["夫", "妻", "旦那", "彼", "パートナー", "家族"],
+        "required": [["DV", "暴力", "暴行", "傷害", "殴", "蹴", "脅", "叩", "暴言", "怒鳴", "ドメスティックバイオレンス", "警察沙汰"]],
+        "context": ["夫", "妻", "旦那", "彼", "パートナー", "家族", "彼氏", "彼女"],
     },
-    # モラハラパターン
+    # モラハラパターン（より严格的な条件）
     {
         "name": "モラハラ",
-        "required": [["モラハラ", "モラルハラスメント", "パワハラ"]],
+        "required": [["モラハラ", "モラルハラスメント", "パワハラ", "精神的な虐待"]],
         "context": [],
     },
-    # 自殺・自傷パターン
+    # 自殺・自傷パターン（より严格的な条件）
     {
         "name": "自殺自傷",
-        "required": [["死にたい", "消えたい", "自殺", "死のう", "生きる意味", "いらない", "終わらせたい", "死ねない", "死なない", "死にきれ"]],
+        "required": [["死にたい", "消えたい", "自殺", "死のう", "生きる意味", "いらない", "終わらせたい", "死ねない", "死なない", "死にきれ", "自殺したい", "命を絶ちたい"]],
         "context": [],
     },
 ]
@@ -312,6 +345,8 @@ def classify_by_keywords(
     for seed_group in SEED_TOPICS:
         all_seed_keywords.update(seed_group)
 
+    # トピックから負面キーワードを収集（各トピックのキーワードを保持）
+    topic_keyword_map = {}
     negative_topic_ids = set()
     topic_info = topic_model.get_topic_info()
     for topic_id in topic_info["Topic"].values:
@@ -320,6 +355,7 @@ def classify_by_keywords(
         topic_keywords = topic_model.get_topic(topic_id)
         if topic_keywords:
             keyword_list = [kw for kw, _ in topic_keywords]
+            topic_keyword_map[topic_id] = keyword_list
             for seed_group in SEED_TOPICS:
                 matches = sum(1 for kw in seed_group if kw in keyword_list)
                 if matches >= topic_match_threshold:
@@ -327,18 +363,8 @@ def classify_by_keywords(
                     print(f"    負面トピック特定: Topic {topic_id} ({matches}キーワード一致)")
                     break
 
-    negative_user_ids = set()
-    for idx, row in result_df.iterrows():
-        user_text = str(row.get("userInput", ""))
-        if not user_text.strip():
-            continue
-        is_match, _ = check_pattern_combos(user_text)
-        if is_match:
-            negative_user_ids.add(row.get("userId"))
-        if any(kw in user_text for kw in all_seed_keywords):
-            negative_user_ids.add(row.get("userId"))
-
-    negative_indices = set()
+    # パターンベース検出（ロマンス詐欺・海外金銭はコンテキスト検出）
+    negative_pattern_indices = set()
     all_rows = list(result_df.iterrows())
     for i, (idx, row) in enumerate(all_rows):
         user_text = str(row.get("userInput", ""))
@@ -354,9 +380,9 @@ def classify_by_keywords(
         combined = " ".join(context_texts)
         is_match, pattern_name = check_pattern_combos(combined)
         if is_match and pattern_name in ("ロマンス詐欺", "海外金銭"):
-            trigger_keywords = ["お金", "貸", "送金", "投資", "融資"]
+            trigger_keywords = ["お金", "貸", "送金", "投資", "融資", "返す", "詐欺", "騙"]
             if any(kw in user_text for kw in trigger_keywords):
-                negative_indices.add(idx)
+                negative_pattern_indices.add(idx)
 
     def assign_category(row):
         user_text = str(row.get("userInput", ""))
@@ -364,19 +390,26 @@ def classify_by_keywords(
         if not user_text.strip():
             return 1
 
-        if row.name in negative_indices:
-            return 0
-
+        # 1. パターンベース直接マッチ（強シグナル）
         is_pattern_match, pattern_name = check_pattern_combos(user_text)
         if is_pattern_match:
             return 0
 
+        # 2. コンテキスト検出済みパターン（ロマンス詐欺・海外金銭）
+        if row.name in negative_pattern_indices:
+            return 0
+
+        # 3. シードキーワード直接マッチ（テキストにキーワードがあれば分類）
         if any(kw in user_text for kw in all_seed_keywords):
             return 0
 
+        # 4. トピックベース分類（負面トピックの場合、テキストにトピック関連キーワードがあれば分類）
         tid = row.get("topic_id")
         if tid is not None and tid in negative_topic_ids:
-            return 0
+            topic_kws = topic_keyword_map.get(tid, [])
+            # トピックのキーワードとシードキーワードの両方を確認
+            if any(kw in user_text for kw in topic_kws) or any(kw in user_text for kw in all_seed_keywords):
+                return 0
 
         return 1
 
@@ -407,21 +440,17 @@ if __name__ == "__main__":
     temp_dir.mkdir(parents=True, exist_ok=True)
 
     print("正在加载数据...")
-    df_mochiko = pd.read_csv(config.DATA_DIR / "data_mochiko.csv")
-    df_pen_sensei = pd.read_csv(config.DATA_DIR / "data_pen_sensei.csv")
+    df_with_id = pd.read_csv(config.DATA_DIR / "data_with_id.csv")
 
-    print(f"mochiko: {len(df_mochiko)} 行")
-    print(f"pen_sensei: {len(df_pen_sensei)} 行")
+    print(f"data_with_id: {len(df_with_id)} 行")
 
-    print(f"  合并全部用户输入进行话题建模")
-    combined_df = pd.concat([df_mochiko, df_pen_sensei], ignore_index=True)
-    all_input_texts = combined_df["userInput"].fillna("").tolist()
+    all_input_texts = df_with_id["userInput"].fillna("").tolist()
     run_topic_modeling(
         texts=all_input_texts,
         dataset_name="combined",
         text_type="userInput",
         output_dir=output_dir,
-        source_df=combined_df,
+        source_df=df_with_id,
     )
 
     print(f"  话题建模完成！")
