@@ -294,7 +294,7 @@ def build_word_cloud(csv_path, title, output_filename, top_n=80, min_count=1):
     freq_dict = dict(zip(df['word'], df['count']))
     n_words = len(freq_dict)
 
-    font_path = r"C:\Users\Reona\AppData\Local\Microsoft\Windows\Fonts\SarasaMonoJ-Regular.ttf"
+    font_path = None
 
     # 词少时缩小画布、减少间距，使词云更紧凑
     if n_words <= 20:
@@ -366,6 +366,82 @@ img {{ max-width: 100%; height: auto; display: block; margin: 0 auto; }}
         f.write(html_content)
 
     print(f"已保存至: {html_file}")
+
+
+def build_treemap(csv_path, title, output_filename, top_n=50, min_count=1):
+    """
+    对 CSV 数据生成 Treemap 图（词频树状图）
+    CSVデータに対してTreemap（単語頻度ツリーマップ）を生成する
+
+    Args:
+        csv_path:       CSV 文件路径（word, count 列必須）/ CSVファイルパス
+        title:          图表标题 / グラフタイトル
+        output_filename: 输出 HTML 文件名 / 出力HTMLファイル名
+        top_n:          取前 N 个高频词 / 上位 N 件の高頻度語を取得
+        min_count:      最小出现次数 / 最小出現回数
+    """
+    df = pd.read_csv(csv_path)
+    df = df[df['count'] >= min_count].head(top_n)
+
+    # 词在第一行，数字在第二行
+    df['label'] = df['word'] + '\n' + df['count'].astype(str)
+
+    fig = go.Figure(go.Treemap(
+        labels=df['label'],
+        parents=[''] * len(df),
+        values=df['count'],
+        textinfo='label',
+        textfont=dict(size=24),
+        marker=dict(
+            colors=df['count'],
+            colorscale='YlGn',
+            showscale=True,
+            colorbar=dict(title='count')
+        ),
+        hovertemplate='<b>%{customdata}</b><br>Count: %{value}<extra></extra>',
+        customdata=df['word'],
+    ))
+
+    fig.update_layout(
+        title=dict(
+            text=title,
+            x=0.5, font=dict(size=22)
+        ),
+        margin=dict(l=10, r=10, t=80, b=10),
+        width=1200,
+        height=800,
+    )
+
+    output_file = config.DATA_DIR / 'word_counts' / output_filename
+    base = str(output_file).replace('.html', '')
+
+    # HTML 版本（含标题）
+    fig.write_html(str(base) + '.html')
+
+    # SVG 版本（无标题）
+    fig_no_title = go.Figure(go.Treemap(
+        labels=df['label'],
+        parents=[''] * len(df),
+        values=df['count'],
+        textinfo='label',
+        textfont=dict(size=24),
+        marker=dict(
+            colors=df['count'],
+            colorscale='YlGn',
+            showscale=True,
+            colorbar=dict(title='count')
+        ),
+        hovertemplate='<b>%{customdata}</b><br>Count: %{value}<extra></extra>',
+        customdata=df['word'],
+    ))
+    fig_no_title.update_layout(
+        margin=dict(l=10, r=10, t=10, b=10),
+        width=1200,
+        height=800,
+    )
+    fig_no_title.write_image(str(base) + '.svg', width=FIG_WIDE_W, height=FIG_WIDE_H, scale=1)
+
+    print(f"已保存至: {base}.html / .svg")
 
 
 def build_bar_chart(csv_path, title_suffix, output_filename, top_n=30):
@@ -497,5 +573,43 @@ build_word_cloud(
     f'{BASE_INPUT}_n.csv',
     title='User Input — Nouns Word Cloud',
     output_filename='wordcloud_input_nouns.html',
+    min_count=10
+)
+
+# === Treemap（単語頻度ツリーマップ）===
+
+# 全体 output 名詞（Mochiko + Pen Sensei 合并）
+build_treemap(
+    str(combined_path),
+    title='Output — Nouns Treemap',
+    output_filename='treemap_output_nouns.html',
+    top_n=50,
+    min_count=10
+)
+
+# Mochiko output 名詞
+build_treemap(
+    f'{BASE_M}_output_n.csv',
+    title='Mochiko — Nouns Treemap',
+    output_filename='treemap_mochiko_nouns.html',
+    top_n=50,
+    min_count=5
+)
+
+# Pen Sensei output 名詞
+build_treemap(
+    f'{BASE_P}_output_n.csv',
+    title='Pen Sensei — Nouns Treemap',
+    output_filename='treemap_pen_sensei_nouns.html',
+    top_n=50,
+    min_count=5
+)
+
+# input 名詞（全ユーザー入力）
+build_treemap(
+    f'{BASE_INPUT}_n.csv',
+    title='User Input — Nouns Treemap',
+    output_filename='treemap_input_nouns.html',
+    top_n=50,
     min_count=10
 )

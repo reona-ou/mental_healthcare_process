@@ -6,6 +6,7 @@ import config
 # 读取原始CSV / 生のCSVデータを読み込む
 df_chat = pd.read_csv(config.DATA_DIR / 'mochiko-line-bot-prod-20260318 (1).csv')
 df_point = pd.read_csv(config.DATA_DIR / 'real_research.csv')
+print(f"[Step 1] 读取原始数据: chat={len(df_chat)}行, point={len(df_point)}行")
 
 # 用于存储提取后的数据 / 抽出後のデータを格納する変数
 orchestrator_queue = deque()  # Orchestrator请求的FIFO队列 / OrchestratorリクエストのFIFOキュー
@@ -119,6 +120,7 @@ for i in range(len(df_chat)):
 
 # 将处理结果转换为 DataFrame / 処理結果をDataFrameに変換
 df_final = pd.DataFrame(processed_rows)
+print(f"[Step 2] 会话配对完成: df_final={len(df_final)}行")
 
 
 
@@ -231,11 +233,13 @@ def is_meaningless_input(text):
 # 2. userInputが意味のないパターンにマッチしない
 mask_valid = (df_final['userInput'].str.len() >= 4) & (~df_final['userInput'].apply(is_meaningless_input))
 df_clean = df_final[mask_valid].copy()
+print(f"[Step 3] 无意义输入过滤: {len(df_clean)}行 (排除{len(df_final)-len(df_clean)}行)")
 # 去重：按 userId, replyType, userInput, persona 组合，保留首次出现 / 重複除去：userId, replyType, userInput, personaの組み合わせで最初の出現を残す
 df_clean = df_clean.drop_duplicates(
     subset=['userId', 'replyType', 'userInput', 'persona'],
     keep='first'
 )
+print(f"[Step 4] 去重后: {len(df_clean)}行 (排除{len(df_final[mask_valid])-len(df_clean)}行)")
 
 
 # 清理特殊符号：将换行符、制表符、回车符替换为空格 / 特殊文字クリーニング：改行・タブ・復帰をスペースに置換
@@ -260,6 +264,8 @@ df_cant_find_id = df_clean[df_clean['point'].isna()].copy()
 df_mochiko = df_with_id[df_with_id['persona'] == 'mochiko'].copy()
 # 仅提取人格「pen_sensei」的数据 / ペルソナ「ペン先生」のデータのみ抽出
 df_pen_sensei = df_with_id[df_with_id['persona'] == 'pen_sensei'].copy()
+print(f"[Step 5] 数据分组: with_id={len(df_with_id)}行, cant_find_id={len(df_cant_find_id)}行")
+print(f"[Step 6] 人格分离: mochiko={len(df_mochiko)}行, pen_sensei={len(df_pen_sensei)}行")
 
 # ID对照表 / ID照合表
 # 聊天数据中出现的唯一userId列表 / チャットデータのユニークuserId一覧
@@ -286,5 +292,4 @@ df_mochiko.to_csv(config.DATA_DIR / 'data_mochiko.csv', index=False, encoding='u
 df_pen_sensei.to_csv(config.DATA_DIR / 'data_pen_sensei.csv', index=False, encoding='utf-8-sig')
 
 # 输出处理结果的行数 / 処理結果の件数を出力
-print(f"num of rows(mochiko): {len(df_mochiko)}")
-print(f"num of rows(pen_sensei): {len(df_pen_sensei)}")
+print(f"[Done] 处理完成，共导出7个CSV文件")
