@@ -175,7 +175,7 @@ def run_topic_modeling(
         nr_topics=None,
         verbose=True,
         language="japanese",
-        seed_topic_list=config.TOPIC_SEED_TOPICS,
+        seed_topic_list=config.TOPIC_SEED,
         representation_model=representation_model,
     )
 

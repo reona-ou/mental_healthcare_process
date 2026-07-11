@@ -47,7 +47,7 @@ userInput (182件) → fugashi形態素解析 → 短文フィルタ (<2語→-1
 |---|---|---|---|
 | nr_topics | None | - | KMeansでクラスタ数を事前決定 |
 | language | japanese | - | 分詞言語設定 |
-| seed_topic_list | 8カテゴリ | `TOPIC_SEED_TOPICS` | クラスタリング誘導用シード |
+| seed_topic_list | 8カテゴリ | `TOPIC_SEED` | クラスタリング誘導用シード |
 | representation_model | MMR (diversity=0.5) | - | キーワード多様性向上 |
 
 ### 後処理
@@ -200,8 +200,8 @@ KEEP_POS = {"名詞", "動詞", "形容詞"}
 PUNCTUATION_POS = {"補助記号", "記号", "助詞", "助動詞", "接続詞", "感動詞", "接頭詞", "接尾詞"}
 STOPWORDS = {...}  # 一般的すぎる単語・分詞偽影
 
-# トピックモデリング シードトピック
-TOPIC_SEED_TOPICS = [...]  # 8カテゴリ
+# トピックモデリング シード
+TOPIC_SEED = [...]  # 8カテゴリ
 
 # 2カテゴリ分類
 CLASSIFY_CONFIDENCE_THRESHOLD = 0.85
