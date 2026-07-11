@@ -5,32 +5,66 @@
 ### Model & Pipeline
 | Parameter | Value | 説明 |
 |---|---|---|
-| Embedding Model | `tohoku-nlp/bert-base-japanese-v3` (local: `models/bert-base-japanese-v3`) | 日本語BERT。テキストを768次元のベクトルに変換する埋め込みモデル |
+| Embedding Model | `cl-nagoya/ruri-v3-310m` (local: `models/ruri-v3-310m`) | 日本語BERT。テキストを768次元のベクトルに変換する埋め込みモデル |
 | Tokenizer | fugashi (MeCab-based Japanese morphological analyzer) | 形態素解析による分詞。BERTopic の前処理に使用 |
 | POS Filter | 名詞, 動詞, 形容詞 only | 品詞フィルタ。名詞・動詞・形容詞のみを残し、助詞・記号等は除去 |
-| Framework | BERTopic | BERT + UMAP + HDBSCAN を統合した話題モデリングフレームワーク |
+| Stopwords | 御座る, 分かる, 言う, 無い, 仕舞う, レン 等 | 一般的すぎる単語・分詞偽影を除去。トピックキーワードの質を向上 |
+| Lemma Cleanup | 英語サフィックス除去 | トイレ-toilet → トイレ、グループ-group → グループ などの重複を解消 |
+| Framework | BERTopic + KMeans | BERT + UMAP + KMeans を統合した話題モデリングフレームワーク |
 
 ### UMAP
 | Parameter | Value | 説明 |
 |---|---|---|
-| n_neighbors | 20 | 各サンプルの近傍数。20で局所構造と大域構造のバランスを保持 |
-| n_components | 8 | 減次後の次元数。8次元で話題の多様性を保持 |
-| min_dist | 0.0 | サンプル間の最小距離。0に近いほどクラスタ内に密集 |
+| n_neighbors | 15 | 各サンプルの近傍数。15で局所構造を保持 |
+| n_components | 2 | 減次後の次元数。2次元でKMeansクラスタリングを効率化 |
+| min_dist | 0.1 | サンプル間の最小距離。0.1でクラスタ間に適度な間隔を保持 |
 | metric | cosine | 距離計測方法。テキスト埋め込みにはコサイン類似度が適している |
 | random_state | 42 | 再現性確保のための乱数シード |
+
+### Clustering (KMeans)
+| Parameter | Value | 説明 |
+|---|---|---|
+| n_clusters | 7 (自動計算) | クラスタ数。min(7, len(texts)//10) で自動決定 |
+| n_init | 10 | 初期化回数。10回で最適なクラスタを探索 |
+| min_topic_size | 4 | 話題の最小文書数（HDBSCAN使用時のフォールバック） |
 
 ### CountVectorizer
 | Parameter | Value | 説明 |
 |---|---|---|
-| max_df | 0.95 | 全文書の95%以上に出現する単語は無視（語彙の偏りを除去） |
-| min_df | 1 | 最低出現文書数。1以上で登録（全単語を対象） |
+| max_df | 0.85 | 全文書の85%以上に出現する単語は無視（一般的すぎる単語を除去） |
+| min_df | 2 | 最低出現文書数。2以上の出現で登録（稀な単語を除去） |
+| ngram_range | (1, 2) | ユニグラムとバイグラムを使用（複合概念を捉える） |
+
+### Stopwords
+一般的すぎる単語と分詞偽影を事前に除去し、トピックキーワードの質を向上。
+
+```python
+STOPWORDS = {
+    # 极其常见的泛化动词/形容词
+    "御座る", "分かる", "言う", "無い", "有る", "居る", "為る", "呉れる",
+    "思う", "出る", "来る", "行く", "見る", "良い", "悪い",
+    # 敬语形式
+    "下さる", "頂く", "致す",
+    # 助词/助动词（虽然已通过 POS 过滤，但某些形式可能漏过）
+    "ます", "です", "た", "て", "で",
+    # 其他高频泛化词
+    "成る", "置く", "付く", "持つ", "入る", "使う", "知る", "話す",
+    # fugashi 分词伪影词
+    "仕舞う", "れる", "られる", "ある", "いる", "する", "なる",
+    "える", "やすい", "にくい", "方", "遣る", "凄い", "旨い", "レン",
+}
+```
 
 ### BERTopic
 | Parameter | Value | 説明 |
 |---|---|---|
-| min_topic_size | 4 | 話題の最小文書数。4件未満のグループはノイズ(-1)に分類 |
-| nr_topics | None (auto) | 話題数を自動決定。手動指定しない場合は BERTopic が最適化 |
+| nr_topics | None | KMeansでクラスタ数を事前決定するため、BERTopicのトピック統合は無効 |
 | language | japanese | 分詞言語設定 |
+| seed_topic_list | Yes | 半监督模式。8つの种子话题で聚类を引导 |
+| representation_model | MMR (diversity=0.5) | 使用 Maximal Marginal Relevance 优化话题关键词多样性 |
+
+### Post-Processing (后处理)
+使用 `src/seed_topics.json` 中的 `reassign_keywords` 配置，将 Topic -1 中有3个以上明确关键词匹配的文档重新分配到正确话题。
 
 ### Embedding Batch Size
 | Device | Batch Size | 説明 |
@@ -43,21 +77,21 @@
 |---|---|---|
 | Input Data | combined userInput (mochiko + pen_sensei) | 2つのチャットボットのユーザー入力を統合 |
 | Total Documents | 182 | 全セッション数 |
-| Valid Topics (excl. -1) | 7 | 有効な話題数（ノイズ除外） |
-| Outlier Documents (topic -1) | 54 (29.7%) | 話題に分類されなかった文書数 |
-| Topic Coverage | 70.3% | 話題に分類された文書の割合 |
+| Valid Topics (excl. -1) | 7 | 有効な話題数 |
+| Short Texts (topic -1) | 26 (14.3%) | 分詞後に2語未満の短いテキスト（聚類に不適格） |
+| Topic Coverage | 85.7% | 話題に分類された文書の割合 |
 
 ### Topic Distribution
 | Topic | Count | Keywords | Description |
 |---|---|---|---|
-| -1 (outlier) | 54 | 呉れる, 言う, 寝る, 遣る | 未分類（背景ノイズ） |
-| 0 | 34 | 流産, 妊娠, 離婚, 子供 | 妊娠・出産・離婚にまつわる深刻な悩み |
-| 1 | 34 | 駄目, 無い, 言う, 欲しい | ワンオペ育児と日常のストレス |
-| 2 | 17 | 離婚, 外国, 資金, 分かる | 離婚・資金・外国人関連の相談 |
-| 3 | 13 | 呉れる, 会う, 地域, 相談 | 地域支援・相談窓口の利用 |
-| 4 | 12 | 騙す, dv, パートナー | 詐欺・DV・パートナー問題 |
-| 5 | 11 | 相談, 居る, 届け, 送る | 相談・届出・行政手続き |
-| 6 | 7 | 眠る, 食欲, 無い, 働く | 睡眠障害・食欲不振・疲労 |
+| -1 (短文本) | 26 | - | 短文本（<2词）/ 短いテキスト / Short Texts |
+| 0 | 30 | 地域, 保健, 心配, 育児, 相談 | 育児支援・地域 / Parenting Support & Community |
+| 1 | 25 | 赤ちゃん, 離婚, 家事, 育児, きつい | 育児・離婚 / Parenting & Divorce |
+| 2 | 24 | おっぱい, 育児, 寝る, ワンオペ | 産後・授乳 / Postpartum & Breastfeeding |
+| 3 | 22 | 流産, 妊娠, 自分, 辛い, 嬉しい | 流産・妊娠 / Miscarriage & Pregnancy |
+| 4 | 21 | 相談, 苦手, 連絡, しんどい | 人間関係・相談 / Interpersonal & Consultation |
+| 5 | 19 | 離婚, 浮気, 浮気相手, 考える | 離婚・浮気 / Divorce & Infidelity |
+| 6 | 15 | 寝る, 箇月, 安心, 授乳 | 産後睡眠 / Postpartum Sleep |
 
 ---
 
@@ -200,42 +234,33 @@ Output: cluster_topic_diff/all_diff_clusters.csv, category{0,1}/, HTML charts
 
 ## 4. 2-Category Classification
 
-### Classification Logic (priority order) — 分類ロジック（優先度順）
-1. **Sliding window pattern match** (current + 2 previous messages) → category 0 — スライディングウインドウ（現在+過去2メッセージ）によるパターンマッチ
-2. **Single-message PATTERN_COMBOS match** → category 0 — 1メッセージ単位のキーワード組み合わせマッチ
-3. **Seed keyword match** (SEED_TOPICS) → category 0 — シードトピックのキーワード一致
-4. **BERTopic topic match** (topic keywords + seed keywords overlap) → category 0 — BERTopicのトピックとシードキーワードの重複
-5. **Default** → category 1 — 上記に該当しない場合
+### Classification Method — 分類方法
+**キーワードベース半監督学習**: テキスト内でキーワードを検索し、一致があれば category 0 (負面) に分類。
 
-### PATTERN_COMBOS (12 patterns) — パターン一覧
-| Pattern Name | Required Keywords | Context Keywords | 説明 |
-|---|---|---|---|
-| 離婚別離 | 離婚, 別居, 親権, 離婚届, 調停, 弁護士 | 夫, 妻, 旦那, パートナー | 離婚に直面した相談 |
-| 浮気不倫 | 浮気, 不倫, 愛人, 二股, 不貞 | 夫, 妻, 彼, パートナー | 浮気・不倫の相談 |
-| 夫以外の幸せ | 夫以外, 他の人, 別の男性 | 幸せ, 恋, 気持ち, 好き, 愛 | 夫以外の人との関係性を示唆 |
-| 夫隠し | 夫に見つかったら怖い, 夫に内緒 | — | 夫に隠す事柄（浮気・DV等の示唆） |
-| 外国人詐欺 | 外国, 外国人, 海外の人 | 信頼, 夫より, 優しい, 相談 | 外国人との関係での詐欺リスク |
-| 流産妊娠問題 | 流産, 死産, 中絶, 妊娠中絶 | — | 流産・妊娠関連の相談 |
-| ロマンス詐欺 | Facebook, SNS, LINE, マッチング / 退役軍人, 軍人 | 海外, 貸, 送金, 返す, 会いに来る | SNS経由 or 退役軍人による金銭要求 |
-| 海外金銭 | 海外, 外国 | 貸, 送金, 融資, 資金, 出会 | 海外関係での金銭トラブル |
-| 詐欺 | 詐欺, フィッシング, 登録するだけで, ベビーモデル | — | 詐欺・フィッシング被害 |
-| 金銭トラブル | 融資, 資金を持ちかけ, 投資, 借金 | 多額, 大金, 消える, 不安 | 金銭トラブル・詐欺的勧誘 |
-| DV暴力 | DV, 暴力, 殴, 蹴, 暴言, 警察沙汰 | 夫, 妻, パートナー, 家族 | DV・暴力行為 |
-| モラハラ | モラハラ, パワハラ, 精神的な虐待 | — | 精神的ハラスメント |
-| 自殺自傷 | 死にたい, 消えたい, 自殺, 死のう, 終わらせたい | — | 自殺・自傷の意思表示 |
+### Negative Keywords — 負面キーワード
+
+| Category | Keywords | 説明 |
+|---|---|---|
+| 離婚 | 離婚, 別れたい, 別居, 親権, 離婚届, 結婚を終わら | 離婚関連 |
+| 流産 | 流産, 死産, 妊娠中絶, 中絶 | 流産関連 |
+| 浮気・不倫 | 浮気, 不倫, 愛人, 二股, 浮気相手, 不倫相手, 浮気された, セックスレス | 不貞関連 |
+| 詐欺 | 詐欺, 騙す, 騙されて, フィッシング, 登録するだけで | 詐欺関連 |
+| 詐欺（コンテキスト） | 退役軍人, Facebook, マッチングアプリ, 海外 + お金, 貸す, 送金, 投資, 資金, 融資, 返す | 詐欺コンテキスト確認 |
+| DV | DV, 暴力, 暴行, 傷害, 殴, 蹴, 脅, 叩, 暴言, 怒鳴, モラハラ, パワハラ, 精神的な虐待, 物投げる | DV・暴力関連 |
+| 自殺 | 死にたい, 消えたい, 自殺, 死のう, 生きる意味, 終わらせたい | 自殺・自傷関連 |
 
 ### Category Definitions — カテゴリ定義
 | Category | Label | Description | 説明 |
 |---|---|---|---|
-| 0 | 負面 (Negative) | Extreme cases: 離婚, 浮気, 流産, 詐欺, DV, モラハラ, 自殺/自傷 | クリティカルなケース。離婚・浮気・DV・詐欺・自殺関連 |
-| 1 | 非負面 (Non-negative) | Routine childcare inquiries, normal stress | 日常的な育児相談・ストレス |
+| 0 | 負面 (Negative) | 离婚, 浮気, 流産, 詐欺, DV, 自殺/自傷 | クリティカルなケース |
+| 1 | 非負面 (Non-negative) | 育児相談, 日常ストレス, 地域支援 | 日常的な育児相談・ストレス |
 
 ### Results — 結果
 | Metric | Value | 説明 |
 |---|---|---|
 | Total Sessions | 182 | 全セッション数 |
-| Category 0 (Negative) | 55 (30.2%) | 負面カテゴリの割合 |
-| Category 1 (Non-negative) | 127 (69.8%) | 非負面カテゴリの割合 |
+| Category 0 (Negative) | 51 (28.0%) | 負面カテゴリの割合 |
+| Category 1 (Non-negative) | 131 (72.0%) | 非負面カテゴリの割合 |
 
 ---
 
@@ -268,8 +293,8 @@ TOPIC_UMAP_N_COMPONENTS = 8      # UMAP削減後次元数
 TOPIC_UMAP_MIN_DIST = 0.0        # UMAP最小距離（0=密集）
 TOPIC_UMAP_METRIC = "cosine"     # UMAP距離計測
 TOPIC_RANDOM_SEED = 42           # 乱数シード
-TOPIC_VECTORIZER_MAX_DF = 0.95   # 語彙の最大出現文書率
-TOPIC_VECTORIZER_MIN_DF = 1      # 語彙の最小出現文書数
+TOPIC_VECTORIZER_MAX_DF = 0.85   # 語彙の最大出現文書率（一般的すぎる単語を除去）
+TOPIC_VECTORIZER_MIN_DF = 2      # 語彙の最小出現文書数（稀な単語を除去）
 TOPIC_EMBEDDING_BATCH_SIZE_CUDA = 64  # GPU埋め込みバッチサイズ
 TOPIC_EMBEDDING_BATCH_SIZE_CPU = 16   # CPU埋め込みバッチサイズ
 

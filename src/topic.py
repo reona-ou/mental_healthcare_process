@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import warnings
 import torch
 import pandas as pd
@@ -14,13 +15,34 @@ from fugashi import Tagger
 from sentence_transformers import SentenceTransformer
 from bertopic import BERTopic
 from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.cluster import KMeans
 from umap import UMAP
 
 warnings.filterwarnings("ignore")
 
+# 加载种子话题配置 / シードトピック設定の読み込み
+SEED_TOPICS_PATH = Path(__file__).parent / "seed_topics.json"
+with open(SEED_TOPICS_PATH, "r", encoding="utf-8") as f:
+    SEED_CONFIG = json.load(f)
+
+# BERTopic 用的种子话题（用于引导聚类）
+BERTOPIC_SEED_TOPICS = [
+    ["離婚", "別れたい", "別居", "親権", "離婚届"],
+    ["浮気", "不倫", "愛人", "二股", "浮気相手"],
+    ["詐欺", "騙す", "騙されて", "フィッシング", "退役軍人"],
+    ["DV", "暴力", "殴", "暴言", "無視", "冷たい"],
+    ["死にたい", "消えたい", "自殺", "死のう", "終わらせたい"],
+    ["流産", "死産", "妊娠中絶", "中絶"],
+    ["赤ちゃん", "授乳", "母乳", "おっぱい", "育児"],
+    ["眠れない", "食欲", "頭痛", "疲労", "産後"],
+]
+
+# 二分类用的负面关键词
+NEGATIVE_KEYWORDS = SEED_CONFIG["negative_keywords"]
+
 # 设置 — 本地模型优先 / 設定 — ローカルモデル優先
-LOCAL_MODEL_PATH = config.MODELS_DIR / "bert-base-japanese-v3"
-MODEL_NAME = str(LOCAL_MODEL_PATH) if LOCAL_MODEL_PATH.exists() else "tohoku-nlp/bert-base-japanese-v3"
+LOCAL_MODEL_PATH = config.MODELS_DIR / "ruri-v3-310m"
+MODEL_NAME = str(LOCAL_MODEL_PATH) if LOCAL_MODEL_PATH.exists() else "cl-nagoya/ruri-v3-310m"
 RANDOM_SEED = config.TOPIC_RANDOM_SEED
 MIN_TOPIC_SIZE = config.TOPIC_MIN_TOPIC_SIZE
 
@@ -35,24 +57,21 @@ tagger = Tagger()
 KEEP_POS = {"名詞", "動詞", "形容詞"}
 PUNCTUATION_POS = {"補助記号", "記号", "助詞", "助動詞", "接続詞", "感動詞", "接頭詞", "接尾詞"}
 
-# シードトピック（BERTopic 半監督モード用）
-# 負面カテゴリ: 詐欺・浮気・DV・離婚・自殺等の极端ケースのみ
-SEED_TOPICS = [
-    # 離婚・別離（より具体的なキーワード）
-    ["離婚", "別れたい", "別居", "親権", "離婚届", "離婚を考え", "結婚を終わら", "離婚したい", "離婚する", "離婚の相談"],
-    # 浮気・不倫（より具体的なキーワード）
-    ["浮気", "不倫", "愛人", "二股", "浮気相手", "不倫相手", "浮気された", "浮気している", "不貞行為"],
-    # 流産・妊娠問題（より具体的なキーワード）
-    ["流産", "死産", "妊娠中絶", "中絶", "流産した", "流産の心配"],
-    # 詐欺・被害（より具体的なキーワード）
-    ["詐欺", "フィッシング", "騙されて", "騙す", "詐欺に遭った", "詐欺被害", "詐欺まき"],
-    # DV・暴力（より具体的なキーワード）
-    ["DV", "dv", "Dv", "暴力", "暴行", "傷害", "殴", "蹴", "脅", "叩", "暴言", "怒鳴", "ドメスティックバイオレンス"],
-    # モラハラ（より具体的なキーワード）
-    ["モラハラ", "モラルハラスメント", "パワハラ", "精神的な虐待"],
-    # 自殺・自傷（より具体的なキーワード）
-    ["死にたい", "消えたい", "自殺", "死のう", "生きる意味", "いらない", "終わらせたい", "死ねない", "死なない", "死にきれ", "自殺したい", "命を絶ちたい"],
-]
+# 停用词表：过滤极其常见的泛化词 / ストップワード：一般的すぎる単語を除外
+STOPWORDS = {
+    # 极其常见的泛化动词/形容词
+    "御座る", "分かる", "言う", "無い", "有る", "居る", "為る", "呉れる",
+    "思う", "出る", "来る", "行く", "見る", "良い", "悪い",
+    # 敬语形式
+    "下さる", "頂く", "致す",
+    # 助词/助动词（虽然已通过 POS 过滤，但某些形式可能漏过）
+    "ます", "です", "た", "て", "で",
+    # 其他高频泛化词
+    "成る", "置く", "付く", "持つ", "入る", "使う", "知る", "話す",
+    # fugashi 分词伪影词
+    "仕舞う", "れる", "られる", "ある", "いる", "する", "なる",
+    "える", "やすい", "にくい", "方", "遣る", "凄い", "旨い", "レン",
+}
 
 # パターンベース検出用のキーワード組み合わせ（2カテゴリ分類用）
 # 負面カテゴリ: 詐欺・浮気・DV・離婚等の极端ケースのみ
@@ -162,8 +181,64 @@ def tokenize_with_fugashi(text: str) -> str:
             continue
         if pos in KEEP_POS:
             lemma = word.feature.lemma if word.feature.lemma else word.surface
-            tokens.append(lemma)
+            # 清理 lemma：去除英文后缀（如 toilet-toilet -> toilet）
+            if "-" in lemma:
+                lemma = lemma.split("-")[0]
+            # 过滤停用词
+            if lemma not in STOPWORDS:
+                tokens.append(lemma)
     return " ".join(tokens)
+
+
+# 后处理：将 -1 文档重新分配到匹配的 topic
+REASSIGN_KEYWORDS = SEED_CONFIG.get("reassign_keywords", {})
+
+
+def reassign_outliers(topics: list[int], tokenized_texts: list[str], valid_texts: list[str]) -> list[int]:
+    """
+    将 topic -1 中有明确关键词的文档重新分配到最匹配的 topic。
+    """
+    topic_set = sorted(set(t for t in topics if t != -1))
+    if not topic_set:
+        return topics
+
+    topic_keyword_map = {}
+    for category, keywords in REASSIGN_KEYWORDS.items():
+        topic_keyword_map[category] = set(keywords)
+
+    category_to_topic = {
+        "divorce": 0,
+        "affair": 1,
+        "fraud": 2,
+        "psychological": 3,
+        "miscarriage": 4,
+        "parenting": 5,
+        "health": 6,
+    }
+
+    new_topics = list(topics)
+    reassign_count = 0
+
+    for i, (tid, tokenized, original) in enumerate(zip(topics, tokenized_texts, valid_texts)):
+        if tid != -1:
+            continue
+
+        best_category = None
+        best_score = 0
+        for category, keywords in topic_keyword_map.items():
+            score = sum(1 for kw in keywords if kw in original)
+            if score > best_score:
+                best_score = score
+                best_category = category
+
+        if best_category and best_score >= 3:
+            target_topic = category_to_topic.get(best_category)
+            if target_topic is not None and target_topic in topic_set:
+                new_topics[i] = target_topic
+                reassign_count += 1
+
+    print(f"  后处理：重新分配 {reassign_count} 篇文档")
+    return new_topics
 
 
 def run_topic_modeling(
@@ -190,10 +265,21 @@ def run_topic_modeling(
     print("正在使用 fugashi 进行形态素解析与预处理...")
     tokenized_texts = [tokenize_with_fugashi(t) for t in valid_texts]
 
+    # 识别短文本（tokenized 后少于 2 个词），这些文本不参与聚类
+    short_threshold = 2
+    short_indices = [i for i, t in enumerate(tokenized_texts) if len(t.split()) < short_threshold]
+    long_indices = [i for i in range(len(valid_texts)) if i not in short_indices]
+    print(f"  短文本（< {short_threshold} 词）: {len(short_indices)} 篇，不参与聚类")
+    print(f"  参与聚类文本: {len(long_indices)} 篇")
+
+    # 只对长文本进行聚类
+    long_texts = [valid_texts[i] for i in long_indices]
+    long_tokenized = [tokenized_texts[i] for i in long_indices]
+
     print(f"正在生成 BERT 嵌入向量（{MODEL_NAME}）...")
     embedding_model = SentenceTransformer(MODEL_NAME, device=DEVICE)
     embeddings = embedding_model.encode(
-        valid_texts,
+        long_texts,
         show_progress_bar=True,
         batch_size=config.TOPIC_EMBEDDING_BATCH_SIZE_CUDA if DEVICE == "cuda" else config.TOPIC_EMBEDDING_BATCH_SIZE_CPU,
     )
@@ -210,50 +296,65 @@ def run_topic_modeling(
     )
 
     vectorizer = CountVectorizer(
-        max_df=config.TOPIC_VECTORIZER_MAX_DF,
-        min_df=config.TOPIC_VECTORIZER_MIN_DF,
+        max_df=0.85,
+        min_df=2,
+        ngram_range=(1, 2),
     )
+
+    from bertopic.representation import MaximalMarginalRelevance
+
+    representation_model = MaximalMarginalRelevance(diversity=0.5)
+
+    # 使用 KMeans 替代 HDBSCAN，避免过多 -1 outlier
+    n_clusters = min(7, len(valid_texts) // 10)  # 最多7个cluster，至少10篇/cluster
+    n_clusters = max(3, n_clusters)  # 至少3个cluster
+    km_model = KMeans(n_clusters=n_clusters, random_state=RANDOM_SEED, n_init=10)
 
     topic_model = BERTopic(
         embedding_model=None,
         umap_model=umap_model,
+        hdbscan_model=km_model,
         vectorizer_model=vectorizer,
-        min_topic_size=MIN_TOPIC_SIZE,
-        nr_topics=None,
+        nr_topics=None,  # KMeans 已确定 cluster 数
         verbose=True,
         language="japanese",
+        seed_topic_list=BERTOPIC_SEED_TOPICS,
+        representation_model=representation_model,
     )
 
-    topics, probs = topic_model.fit_transform(
-        tokenized_texts,
+    topics_long, probs_long = topic_model.fit_transform(
+        long_tokenized,
         embeddings=embeddings,
     )
+
+    # 后处理：重新分配 -1 文档
+    topics_long = reassign_outliers(topics_long, long_tokenized, long_texts)
+
+    # 合并结果：短文本标记为 -1，长文本使用聚类结果
+    topics = [-1] * len(valid_texts)
+    probs = None
+    for i, topic_idx in enumerate(long_indices):
+        topics[topic_idx] = topics_long[i]
+    if probs_long is not None:
+        probs = np.zeros((len(valid_texts), probs_long.shape[1]))
+        for i, topic_idx in enumerate(long_indices):
+            probs[topic_idx] = probs_long[i]
 
     print("正在保存结果...")
     output_dir.mkdir(parents=True, exist_ok=True)
     prefix = f"{dataset_name}_{text_type}"
 
+    # 获取 BERTopic 原始话题信息
     topic_info = topic_model.get_topic_info()
-    topic_info_path = output_dir / f"{prefix}_topic_info.csv"
-    topic_info.to_csv(topic_info_path, index=False, encoding="utf-8-sig")
-    print(f"  → トピック情報: {topic_info_path}")
 
-    all_keywords = []
-    for topic_id in topic_info["Topic"].values:
-        if topic_id == -1:
-            continue
-        keywords = topic_model.get_topic(topic_id)
-        for word, score in keywords:
-            all_keywords.append({
-                "topic_id": topic_id,
-                "keyword": word,
-                "score": score,
-            })
-    keywords_df = pd.DataFrame(all_keywords)
-    keywords_path = output_dir / f"{prefix}_topic_keywords.csv"
-    keywords_df.to_csv(keywords_path, index=False, encoding="utf-8-sig")
-    print(f"  → 话题关键词: {keywords_path}")
+    n_valid_topics = len([t for t in topic_info["Topic"].values if t != -1])
+    n_outliers = len([t for t in topics if t == -1])
+    print(f"\n  ■ 结果摘要:")
+    print(f"    话题数: {n_valid_topics}")
+    print(f"    离群文档数: {n_outliers} / {len(topics)}")
+    print(f"    话题占比: {(len(topics) - n_outliers) / len(topics) * 100:.1f}%")
 
+    # 保存 doc_topics.csv
     doc_topics = pd.DataFrame({
         "document_index": range(len(valid_texts)),
         "original_text": valid_texts,
@@ -266,20 +367,58 @@ def run_topic_modeling(
     doc_topics.to_csv(doc_topics_path, index=False, encoding="utf-8-sig")
     print(f"  → 文档-话题分配结果: {doc_topics_path}")
 
-    n_valid_topics = len([t for t in topic_info["Topic"].values if t != -1])
-    n_outliers = len([t for t in topics if t == -1])
-    print(f"\n  ■ 结果摘要:")
-    print(f"    话题数: {n_valid_topics}")
-    print(f"    离群文档数: {n_outliers} / {len(topics)}")
-    print(f"    话题占比: {(len(topics) - n_outliers) / len(topics) * 100:.1f}%")
+    # 保存话题信息
+    from collections import Counter
+    topic_counts = Counter(topics)
+    topic_info_list = []
+    for topic_id in sorted(topic_counts.keys()):
+        if topic_id == -1:
+            name = f"{topic_id}_outlier"
+        else:
+            kws = topic_model.get_topic(topic_id)
+            name = f"{topic_id}_{kws[0][0]}_{kws[1][0]}_{kws[2][0]}" if kws else f"{topic_id}_unknown"
+        topic_info_list.append({
+            "Topic": topic_id,
+            "Count": topic_counts[topic_id],
+            "Name": name,
+        })
+    topic_info_df = pd.DataFrame(topic_info_list)
+    topic_info_path = output_dir / f"{prefix}_topic_info.csv"
+    topic_info_df.to_csv(topic_info_path, index=False, encoding="utf-8-sig")
+    print(f"  → トピック情報: {topic_info_path}")
 
-    print(f"\n  ■ 话题一览:")
-    for topic_id in topic_info["Topic"].values:
+    # 保存话题关键词
+    all_keywords = []
+    for topic_id in sorted(topic_counts.keys()):
         if topic_id == -1:
             continue
-        count = topic_info.loc[topic_info["Topic"] == topic_id, "Count"].values[0]
-        name = topic_info.loc[topic_info["Topic"] == topic_id, "Name"].values[0]
-        print(f"    Topic {topic_id} ({count}件): {name}")
+        kws = topic_model.get_topic(topic_id)
+        if kws:
+            for word, score in kws:
+                all_keywords.append({
+                    "topic_id": topic_id,
+                    "keyword": word,
+                    "score": score,
+                })
+    keywords_df = pd.DataFrame(all_keywords)
+    keywords_path = output_dir / f"{prefix}_topic_keywords.csv"
+    keywords_df.to_csv(keywords_path, index=False, encoding="utf-8-sig")
+    print(f"  → 话题关键词: {keywords_path}")
+
+    # 话题统计
+    from collections import Counter
+    topic_counts = Counter(topics)
+    n_outliers_after = topic_counts.get(-1, 1)
+    print(f"\n  ■ 结果摘要:")
+    print(f"    话题数: {n_valid_topics}")
+    print(f"    离群文档数: {n_outliers_after} / {len(topics)}")
+    print(f"    话题占比: {(len(topics) - n_outliers_after) / len(topics) * 100:.1f}%")
+
+    print(f"\n  ■ 话题一览:")
+    for topic_id in sorted(topic_counts.keys()):
+        if topic_id == -1:
+            continue
+        print(f"    Topic {topic_id} ({topic_counts[topic_id]}件)")
 
     if source_df is not None:
         print(f"\n  [追加] 2カテゴリ分類を作成中...")
@@ -323,13 +462,15 @@ def classify_by_keywords(
     source_df: pd.DataFrame,
     output_dir: Path,
     prefix: str,
-    topic_match_threshold: int = 2,
 ):
     """
-    2カテゴリ分類（BERTopic 半監督 + パターンベース検出）。
+    2カテゴリ分類（フルパイプライン）。
 
-    category 0: 負面（詐欺・浮気・DV 等のトピック）
-    category 1: 非負面
+    分類ロジック（優先度順）：
+    1. スライディングウインドウ（現在+過去2メッセージ）によるパターンマッチ
+    2. 1メッセージ単位のキーワード組み合わせマッチ（PATTERN_COMBOS）
+    3. 負面キーワードの一致（NEGATIVE_KEYWORDS）
+    4. 上記に該当しない場合 → category 1
     """
     result_df = source_df.copy()
     topic_id_list = list(topics)
@@ -341,29 +482,10 @@ def classify_by_keywords(
     for idx, tid in zip(valid_indices[:len(topic_id_list)], topic_id_list):
         result_df.at[idx, "topic_id"] = tid
 
-    all_seed_keywords = set()
-    for seed_group in SEED_TOPICS:
-        all_seed_keywords.update(seed_group)
+    # 负面キーワードの集合
+    all_negative_keywords = set(NEGATIVE_KEYWORDS)
 
-    # トピックから負面キーワードを収集（各トピックのキーワードを保持）
-    topic_keyword_map = {}
-    negative_topic_ids = set()
-    topic_info = topic_model.get_topic_info()
-    for topic_id in topic_info["Topic"].values:
-        if topic_id == -1:
-            continue
-        topic_keywords = topic_model.get_topic(topic_id)
-        if topic_keywords:
-            keyword_list = [kw for kw, _ in topic_keywords]
-            topic_keyword_map[topic_id] = keyword_list
-            for seed_group in SEED_TOPICS:
-                matches = sum(1 for kw in seed_group if kw in keyword_list)
-                if matches >= topic_match_threshold:
-                    negative_topic_ids.add(topic_id)
-                    print(f"    負面トピック特定: Topic {topic_id} ({matches}キーワード一致)")
-                    break
-
-    # パターンベース検出（ロマンス詐欺・海外金銭はコンテキスト検出）
+    # パターンベース検出（スライディングウインドウ）
     negative_pattern_indices = set()
     all_rows = list(result_df.iterrows())
     for i, (idx, row) in enumerate(all_rows):
@@ -399,17 +521,9 @@ def classify_by_keywords(
         if row.name in negative_pattern_indices:
             return 0
 
-        # 3. シードキーワード直接マッチ（テキストにキーワードがあれば分類）
-        if any(kw in user_text for kw in all_seed_keywords):
+        # 3. 負面キーワード直接マッチ（テキストにキーワードがあれば分類）
+        if any(kw in user_text for kw in all_negative_keywords):
             return 0
-
-        # 4. トピックベース分類（負面トピックの場合、テキストにトピック関連キーワードがあれば分類）
-        tid = row.get("topic_id")
-        if tid is not None and tid in negative_topic_ids:
-            topic_kws = topic_keyword_map.get(tid, [])
-            # トピックのキーワードとシードキーワードの両方を確認
-            if any(kw in user_text for kw in topic_kws) or any(kw in user_text for kw in all_seed_keywords):
-                return 0
 
         return 1
 

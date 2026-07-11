@@ -28,8 +28,8 @@ MODELS = [
         "used_by": f"{SRC_DIR / 'sentiment_analysis.py'}",
     },
     {
-        "repo_id": "tohoku-nlp/bert-base-japanese-v3",
-        "description": "日语BERT Base V3 (トピックモデリング埋め込み) / 日本語BERT Base V3 (トピックモデリング埋め込み)",
+        "repo_id": "cl-nagoya/ruri-v3-310m",
+        "description": "ruri-v3-310m (日语文本嵌入/トピックモデリング埋め込み) / ruri-v3-310m (日本語テキスト埋め込み)",
         "used_by": f"{SRC_DIR / 'topic.py'}",
     },
 ]
