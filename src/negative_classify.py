@@ -324,14 +324,18 @@ def run_classification():
     all_probs = best_clf.predict_proba(embeddings)
 
     confidence_threshold = 0.85
+    short_threshold = 2  # 短文本阈值
     categories = []
     confidences = []
 
     for i, (idx, row) in enumerate(df.iterrows()):
         user_text = str(row.get("userInput", ""))
-        if not user_text.strip():
+        tokenized = str(doc_topics.iloc[i].get("tokenized_text", ""))
+
+        # 空文本或短文本 → category 1
+        if not user_text.strip() or len(tokenized.split()) < short_threshold:
             categories.append(1)
-            confidences.append(0.0)
+            confidences.append(1.0)
             continue
 
         # 如果有种子标签，使用种子标签
@@ -349,7 +353,7 @@ def run_classification():
             categories.append(pred_class)
             confidences.append(max_prob)
         else:
-            categories.append(-1)
+            categories.append(1)  # 低置信度 → category 1
             confidences.append(max_prob)
 
     df["category"] = categories
@@ -358,11 +362,9 @@ def run_classification():
     # 6. 统计结果
     print("\n[6] 结果统计...")
     cat_counts = df["category"].value_counts()
-    n_classified = cat_counts.get(0, 0) + cat_counts.get(1, 0)
     n_high_conf = sum(1 for c in confidences if c >= 0.85)
     print(f"  category 0 (负面):   {cat_counts.get(0, 0)} 件")
     print(f"  category 1 (非负面): {cat_counts.get(1, 0)} 件")
-    print(f"  未分类 (低置信度):   {cat_counts.get(-1, 0)} 件")
     print(f"  高置信度 (>= 0.85):  {n_high_conf} 件")
 
     # 7. 保存结果
