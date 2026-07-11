@@ -229,10 +229,36 @@ Output: cluster_topic_diff/all_diff_clusters.csv, category{0,1}/, HTML charts
 
 ---
 
-## 4. 2-Category Classification
+## 4. 2-Category Classification (negative_classify.py)
 
 ### Classification Method — 分類方法
-**キーワードベース半監督学習**: テキスト内でキーワードを検索し、一致があれば category 0 (負面) に分類。
+**半监督学习方式**: 使用关键词匹配生成种子标签，训练 SVM-RBF 分类器进行预测。
+
+### Pipeline
+```
+1. 读取 data_with_id.csv + doc_topics.csv
+2. 生成 BERT 嵌入 (ruri-v3-310m)
+3. 关键词匹配 + topic 信息 → 生成种子标签 (cat0=61, cat1=91)
+4. 训练 SVM-RBF 分类器
+5. 预测所有文档，高置信度(>=0.85)分类，低置信度归入 category 1
+6. 短文本(tokenized < 2词)直接归入 category 1
+```
+
+### Seed Label Generation
+| Source | Category | Count | 説明 |
+|---|---|---|---|
+| Negative Keywords | 0 | 61 | 離婚, 流産, 浮気, 詐欺, DV, 自殺 関連 |
+| Positive Keywords | 1 | 46 | 赤ちゃん, 授乳, 母乳, 育児, 相談, 保健 関連 |
+| Topic-based | 0/1 | 89 | Topic 5→0, Topic 2/6→1, Topic 3/0/1/4→条件付き |
+
+### Classifier
+| Parameter | Value | 説明 |
+|---|---|---|
+| Algorithm | SVM-RBF | 泛化能力最好（train-CV gap=0.051） |
+| kernel | rbf | RBFカーネル |
+| probability | True | クラスタ確率を出力 |
+| class_weight | balanced | クラス不平衡を自動補正 |
+| confidence_threshold | 0.85 | この閾値以上の予測のみ採用 |
 
 ### Negative Keywords — 負面キーワード
 
@@ -250,14 +276,21 @@ Output: cluster_topic_diff/all_diff_clusters.csv, category{0,1}/, HTML charts
 | Category | Label | Description | 説明 |
 |---|---|---|---|
 | 0 | 負面 (Negative) | 离婚, 浮気, 流産, 詐欺, DV, 自殺/自傷 | クリティカルなケース |
-| 1 | 非負面 (Non-negative) | 育児相談, 日常ストレス, 地域支援 | 日常的な育児相談・ストレス |
+| 1 | 非負面 (Non-negative) | 育児相談, 日常ストレス, 地域支援, 短文本 | 日常的な育児相談・ストレス |
 
 ### Results — 結果
 | Metric | Value | 説明 |
 |---|---|---|
 | Total Sessions | 182 | 全セッション数 |
-| Category 0 (Negative) | 51 (28.0%) | 負面カテゴリの割合 |
-| Category 1 (Non-negative) | 131 (72.0%) | 非負面カテゴリの割合 |
+| Category 0 (Negative) | 59 (32.4%) | 負面カテゴリの割合 |
+| Category 1 (Non-negative) | 123 (67.6%) | 非負面カテゴリの割合 |
+| High Confidence (>= 0.85) | 178 (97.8%) | 高信頼度予測の割合 |
+| Cross-validation F1 | 0.891 | 5-fold CV F1スコア |
+| Train-CV Gap | 0.051 | 過学習なし（良好） |
+
+### Model Storage
+- Classifier: `models/negative_classifier/classifier.joblib`
+- Seed Labels: `models/negative_classifier/seed_labels.joblib`
 
 ---
 
@@ -274,7 +307,7 @@ Output: cluster_topic_diff/all_diff_clusters.csv, category{0,1}/, HTML charts
 
 ---
 
-## 6. Config Centralization 
+## 7. Config Centralization 
 
 全MLパラメータは `src/config.py` に集約。再現性確保のため `random_state=42` を共通使用。
 
@@ -285,9 +318,9 @@ SENTIMENT_MAX_LENGTH = 512       # 最大トークン長
 
 # Topic / 話題モデリング
 TOPIC_MIN_TOPIC_SIZE = 4         # 最小トピックサイズ（これ未満はノイズ扱い）
-TOPIC_UMAP_N_NEIGHBORS = 20      # UMAP近傍数
-TOPIC_UMAP_N_COMPONENTS = 8      # UMAP削減後次元数
-TOPIC_UMAP_MIN_DIST = 0.0        # UMAP最小距離（0=密集）
+TOPIC_UMAP_N_NEIGHBORS = 15      # UMAP近傍数
+TOPIC_UMAP_N_COMPONENTS = 2      # UMAP削減後次元数
+TOPIC_UMAP_MIN_DIST = 0.1        # UMAP最小距離
 TOPIC_UMAP_METRIC = "cosine"     # UMAP距離計測
 TOPIC_RANDOM_SEED = 42           # 乱数シード
 TOPIC_VECTORIZER_MAX_DF = 0.85   # 語彙の最大出現文書率（一般的すぎる単語を除去）
