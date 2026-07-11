@@ -1,10 +1,3 @@
-"""
-Sentiment Analysis using neuralnaut/deberta-wrime-emotions (WRIME微調DeBERTa)
-- 8种情感 / 8つの感情: joy, sadness, anticipation, surprise, anger, fear, disgust, trust
-- 使用 data_with_id.csv / data_with_id.csv を使用
-- 按 (userId, userInput) 分组为对话 / (userId, userInput) でグループ化して会話に分ける
-"""
-
 import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
@@ -18,81 +11,40 @@ import config
 import warnings
 warnings.filterwarnings("ignore")
 
-# === 統一サイズ定義 / Unified figure sizes ===
 FIG_W, FIG_H = 1200, 700
 FIG_WIDE_W, FIG_WIDE_H = 1400, 700
 
 
 def export_fig(fig, base_path):
-    """plotly の fig を HTML + SVG の2形式で出力"""
     fig.write_html(str(base_path) + '.html')
     fig.write_image(str(base_path) + '.svg', width=FIG_WIDE_W, height=FIG_WIDE_H, scale=1)
 
 
-# 输出目录 / 出力ディレクトリ
 SENTIMENT_DIR = config.DATA_DIR / "sentiment"
 SENTIMENT_DIR.mkdir(exist_ok=True)
 
-# 8种情感标签 / 8つの感情ラベル
-EMOTION_LABELS = {
-    'joy': '喜び',
-    'sadness': '悲しみ',
-    'anticipation': '期待',
-    'surprise': '驚き',
-    'anger': '怒り',
-    'fear': '恐れ',
-    'disgust': '嫌悪',
-    'trust': '信頼'
-}
+EMOTION_LABELS = {'joy': '喜び', 'sadness': '悲しみ', 'anticipation': '期待', 'surprise': '驚き', 'anger': '怒り', 'fear': '恐れ', 'disgust': '嫌悪', 'trust': '信頼'}
+EMOTION_COLORS = {'joy': '#FFD700', 'sadness': '#1E90FF', 'anticipation': '#FF8C00', 'surprise': '#FF69B4', 'anger': '#DC143C', 'fear': '#8B008B', 'disgust': '#2E8B57', 'trust': '#4169E1'}
 
-# 每种情感的颜色 / 各感情の色
-EMOTION_COLORS = {
-    'joy': '#FFD700',          # 金色 / ゴールド
-    'sadness': '#1E90FF',      # 蓝色 / ブルー
-    'anticipation': '#FF8C00', # 橙色 / オレンジ
-    'surprise': '#FF69B4',     # 粉红 / ピンク
-    'anger': '#DC143C',        # 红色 / レッド
-    'fear': '#8B008B',         # 紫色 / パープル
-    'disgust': '#2E8B57',      # 绿色 / グリーン
-    'trust': '#4169E1'         # 蓝色 / ブルー
-}
-
-
-# 设备选择 & 加载情感分析模型 / デバイス選択 & 感情分析モデルのロード
 if torch.cuda.is_available():
     device = torch.device("cuda:0")
-    device_name = torch.cuda.get_device_name(0)
-    print(f"使用CUDA设备: {device_name} / CUDAデバイス: {device_name}")
+    print(f"CUDA: {torch.cuda.get_device_name(0)}")
 else:
     device = torch.device("cpu")
-    device_name = "CPU"
-    print(f"CUDA不可用，使用CPU / CUDA利用不可、CPUを使用")
+    print("CPU mode")
 
 LOCAL_MODEL_PATH = config.MODELS_DIR / 'deberta-wrime-emotions'
 MODEL_NAME = str(LOCAL_MODEL_PATH) if LOCAL_MODEL_PATH.exists() else 'neuralnaut/deberta-wrime-emotions'
-print(f"正在加载模型 {MODEL_NAME} ... / モデル {MODEL_NAME} を読み込み中...")
+print(f"Loading {MODEL_NAME}...")
 tok = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
-model.to(device)  # 明确将模型移动到GPU / モデルを明示的にGPUに移動
-model.eval()  # 设置为评估模式 / 評価モードに設定
-sentiment_pipeline = pipeline(
-    "sentiment-analysis",
-    model=model,
-    tokenizer=tok,
-    top_k=None,
-    device=device
-)
-print("模型加载完成。 / モデルの読み込み完了。")
-print(f"情感标签: {model.config.id2label} / 感情ラベル: {model.config.id2label}")
+model.to(device)
+model.eval()
+sentiment_pipeline = pipeline("sentiment-analysis", model=model, tokenizer=tok, top_k=None, device=device)
+print("Model loaded.")
 
 
-# 批量情感分析（返回8种情感分数）/ バッチ感情分析（8つの感情スコアを返す）
 def analyze_emotions_batch(texts, batch_size=config.SENTIMENT_BATCH_SIZE):
-    """
-    批量进行8种情感分析
-    8つの感情をバッチで分析する
-    Returns: list of dict, each dict maps emotion_name -> score
-    """
     results = [{}] * len(texts)
     valid_indices = []
     valid_texts = []
@@ -108,77 +60,44 @@ def analyze_emotions_batch(texts, batch_size=config.SENTIMENT_BATCH_SIZE):
     try:
         for start in range(0, len(valid_texts), batch_size):
             end = min(start + batch_size, len(valid_texts))
-            batch_texts = valid_texts[start:end]
-            batch_indices = valid_indices[start:end]
-
-            batch_results = sentiment_pipeline(
-                batch_texts,
-                batch_size=batch_size,
-                truncation=True,
-                max_length=config.SENTIMENT_MAX_LENGTH,
-            )
-
-            for idx, res in zip(batch_indices, batch_results):
-                scores = {item['label']: item['score'] for item in res}
-                results[idx] = scores
+            batch_results = sentiment_pipeline(valid_texts[start:end], batch_size=batch_size, truncation=True, max_length=config.SENTIMENT_MAX_LENGTH)
+            for idx, res in zip(valid_indices[start:end], batch_results):
+                results[idx] = {item['label']: item['score'] for item in res}
     except Exception as e:
-        print(f"  批量分析错误: {e}")
+        print(f"  Batch error: {e}")
 
     return results
 
 
-# 加载数据并进行情感分析 / データをロードして感情分析を実行
 def process_dataset(filepath):
-    print(f"处理数据集: {filepath} / データセット処理中: {filepath}")
-
+    print(f"Processing: {filepath}")
     df = pd.read_csv(filepath)
-    print(f"数据行数: {len(df)} / データ行数: {len(df)}")
-    print(f"用户数: {df['userId'].nunique()} / ユーザー数: {df['userId'].nunique()}")
-    print(f"replyType 分布: / replyType 分布:")
-    print(df['replyType'].value_counts())
-    print(f"persona 分布: / persona 分布:")
-    print(df['persona'].value_counts())
+    print(f"  Rows: {len(df)}, Users: {df['userId'].nunique()}")
 
-    # 分析 userInput 情感 / userInput の感情を分析
-    print("\n正在分析 userInput 的情感... / userInput の感情を分析中...")
+    print("Analyzing userInput...")
     input_emotions = analyze_emotions_batch(df['userInput'].tolist())
     for emotion in EMOTION_LABELS.keys():
         df[f'input_{emotion}'] = [d.get(emotion, np.nan) for d in input_emotions]
 
-    # 分析 replyText 情感 / replyText の感情を分析
-    print("正在分析 replyText の感情を分析中... / replyText の感情を分析中...")
+    print("Analyzing replyText...")
     reply_emotions = analyze_emotions_batch(df['replyText'].tolist())
     for emotion in EMOTION_LABELS.keys():
         df[f'reply_{emotion}'] = [d.get(emotion, np.nan) for d in reply_emotions]
 
-    print(f"\n情感分析完成。数据列: {[c for c in df.columns if c.startswith('input_') or c.startswith('reply_')]} / 感情分析完了。データ列: {[c for c in df.columns if c.startswith('input_') or c.startswith('reply_')]}")
     return df
 
 
-# 构建对话数据结构 / 会話データ構造を構築
 def build_conversations(df):
-    # 按 (userId, userInput) 分组 / (userId, userInput) でグループ化
     conversations = []
     for (uid, user_input), group in df.groupby(['userId', 'userInput']):
         group = group.sort_values('session_id')
+        conv = {'userId': uid, 'userInput': user_input, 'session_ids': group['session_id'].tolist()}
 
-        conv = {
-            'userId': uid,
-            'userInput': user_input,
-            'session_ids': group['session_id'].tolist(),
-            'input': user_input,
-        }
-
-        # Input 情感分数（取第一条，同一输入相同）/ Input 感情スコア（最初の行を取得、同一入力は同じ）
         first = group.iloc[0]
         for emotion in EMOTION_LABELS.keys():
             conv[f'input_{emotion}'] = first.get(f'input_{emotion}', np.nan)
 
-        # Reply 情感分数（整体结果，优先使用ReplyInterruptPersona）
-        # Reply 感情スコア（全体結果、ReplyInterruptPersonaを優先使用）
-        # 如果同时存在ReplyCurrentPersona和ReplyInterruptPersona，只保留ReplyInterruptPersona
-        # ReplyCurrentPersonaとReplyInterruptPersonaが同時に存在する場合、ReplyInterruptPersonaのみを保持
-        reply_data = group.iloc[-1]  # 默认使用最后一条
+        reply_data = group.iloc[-1]
         for emotion in EMOTION_LABELS.keys():
             conv[f'reply_{emotion}'] = reply_data.get(f'reply_{emotion}', np.nan)
         conv['reply_persona'] = reply_data['persona']
@@ -188,236 +107,98 @@ def build_conversations(df):
         conversations.append(conv)
 
     conv_df = pd.DataFrame(conversations)
-
-    # 为每组对话添加序号 Cxxx / 各会話に番号 Cxxx を付与
     conv_df.insert(0, 'conv_id', [f'C{i+1:03d}' for i in range(len(conv_df))])
-
-    print(f"\n对话数: {len(conv_df)}（按 userId+userInput 分组）/ 会話数: {len(conv_df)}（userId+userInput でグループ化）")
+    print(f"\nConversations: {len(conv_df)}")
     return conv_df
 
 
-
-# 用户统计 / ユーザー統計
 def compute_user_statistics(conv_df):
-    print(f"\n用户统计 / ユーザー統計")
     user_stats = []
     for uid, group in conv_df.groupby('userId'):
-        stats = {
-            'userId': uid,
-            'conversations': len(group),
-        }
-        # 各情感的平均分数 / 各感情の平均スコア（全体結果）
+        stats = {'userId': uid, 'conversations': len(group)}
         for emotion in EMOTION_LABELS.keys():
             reply_scores = group[f'reply_{emotion}'].dropna()
             stats[f'reply_{emotion}_mean'] = reply_scores.mean() if len(reply_scores) > 0 else np.nan
         user_stats.append(stats)
-
-    stats_df = pd.DataFrame(user_stats)
-    print(stats_df.to_string(index=False))
-    return stats_df
+    return pd.DataFrame(user_stats)
 
 
-# 为每个用户生成图表 / 各ユーザーのグラフを生成
 def create_charts(conv_df, output_dirname='charts_wrime'):
-    """
-    每个用户两张子图：
-    上图: Reply 8种情感折线（标明persona）
-    下图: Input 8种情感折線
-
-    各ユーザーに2つのサブプロット：
-    上: Reply 8感情の折れ線（ペルソナ表示）
-    下: Input 8感情の折れ線
-    """
-    print(f"\n正在生成图表... / グラフを生成中...")
-
     charts_dir = SENTIMENT_DIR / output_dirname
     charts_dir.mkdir(exist_ok=True)
 
-    # persona 颜色用于标记 / personaの色はマーカーに使用
+    persona_symbols = {'mochiko': 'circle', 'muchiko': 'square', 'pen_sensei': 'diamond'}
     users = conv_df['userId'].unique()
     generated_files = []
 
     for uid in users:
         user_conv = conv_df[conv_df['userId'] == uid].sort_values(
-            ['session_ids'],
-            key=lambda x: x.apply(lambda s: s[0] if isinstance(s, list) else s)
+            ['session_ids'], key=lambda x: x.apply(lambda s: s[0] if isinstance(s, list) else s)
         ).reset_index(drop=True)
 
-        short_id = uid  # 使用完整原始userId / 完元のuserIdを使用
         n = len(user_conv)
         x_positions = list(range(1, n + 1))
+        persona_list = user_conv['reply_persona'].tolist()
 
-        persona_symbols = {
-            'mochiko': 'circle',
-            'muchiko': 'square',
-            'pen_sensei': 'diamond',
-        }
+        fig = make_subplots(rows=2, cols=1, subplot_titles=('<br>Reply', '<br>User Input:'), vertical_spacing=0.12, row_heights=[0.5, 0.5])
 
-        fig = make_subplots(
-            rows=2, cols=1,
-            subplot_titles=(
-                '<br>Reply',
-                '<br>User Input:'
-            ),
-            vertical_spacing=0.12,
-            row_heights=[0.5, 0.5]
-        )
-
-        # Reply 8条情感折线，marker与折线关联（lines+markers模式）
-        # 通过为每个点设置不同的marker symbol来区分persona
-        # Reply 8感情の折れ線、マーカーと折れ線を関連付け（lines+markersモード）
-        # 各ポイントに異なるマーカーシンボルを設定してペルソナを区別
-        persona_list_for_markers = user_conv['reply_persona'].tolist()
         for emotion in EMOTION_LABELS.keys():
             reply_scores = user_conv[f'reply_{emotion}'].tolist()
-            # 根据persona为每个点设置对应的marker symbol
-            # ペルソナに応じて各ポイントのマーカーシンボルを設定
-            symbols = []
-            for p in persona_list_for_markers:
-                if p in persona_symbols:
-                    symbols.append(persona_symbols[p])
-                else:
-                    symbols.append('circle')  # 默认圆形 / デフォルトは円形
-            fig.add_trace(
-                go.Scatter(
-                    x=x_positions, y=reply_scores,
-                    mode='lines+markers',
-                    name=f'{EMOTION_LABELS[emotion]}',
-                    line=dict(color=EMOTION_COLORS[emotion], width=2),
-                    marker=dict(
-                        size=10,
-                        symbol=symbols,
-                        color=EMOTION_COLORS[emotion],
-                        line=dict(width=1, color='white')
-                    ),
-                    legendgroup=f'reply_{emotion}',
-                    showlegend=True,
-                    hovertemplate=[
-                        f'{persona_list_for_markers[i]} | {EMOTION_LABELS[emotion]}: %{{y:.4f}}<extra></extra>'
-                        for i in range(len(reply_scores))
-                    ]
-                ),
-                row=1, col=1
-            )
+            symbols = [persona_symbols.get(p, 'circle') for p in persona_list]
+            fig.add_trace(go.Scatter(
+                x=x_positions, y=reply_scores, mode='lines+markers',
+                name=EMOTION_LABELS[emotion], line=dict(color=EMOTION_COLORS[emotion], width=2),
+                marker=dict(size=10, symbol=symbols, color=EMOTION_COLORS[emotion], line=dict(width=1, color='white')),
+                legendgroup=f'reply_{emotion}', showlegend=True,
+                hovertemplate=[f'{persona_list[i]} | {EMOTION_LABELS[emotion]}: %{{y:.4f}}<extra></extra>' for i in range(len(reply_scores))]
+            ), row=1, col=1)
 
-        annotations = []
-
-        # Input 折线 / Input 折れ線
         for emotion in EMOTION_LABELS.keys():
             input_scores = user_conv[f'input_{emotion}'].tolist()
-            fig.add_trace(
-                go.Scatter(
-                    x=x_positions, y=input_scores,
-                    mode='lines+markers',
-                    name=f'{EMOTION_LABELS[emotion]} (Input)',
-                    line=dict(color=EMOTION_COLORS[emotion], width=2),
-                    marker=dict(size=6),
-                    legendgroup=f'input_{emotion}',
-                    hovertemplate=f'Input {EMOTION_LABELS[emotion]}: %{{y:.4f}}<extra></extra>'
-                ),
-                row=2, col=1
-            )
+            fig.add_trace(go.Scatter(
+                x=x_positions, y=input_scores, mode='lines+markers',
+                name=f'{EMOTION_LABELS[emotion]} (Input)', line=dict(color=EMOTION_COLORS[emotion], width=2),
+                marker=dict(size=6), legendgroup=f'input_{emotion}',
+                hovertemplate=f'Input {EMOTION_LABELS[emotion]}: %{{y:.4f}}<extra></extra>'
+            ), row=2, col=1)
 
-        # userInput 底部标注 / userInput の底部アノテーション
+        annotations = []
         for j, (_, row) in enumerate(user_conv.iterrows()):
             input_text = str(row['userInput'])[:25]
             if len(str(row['userInput'])) > 25:
                 input_text += '...'
-            annotations.append(dict(
-                x=x_positions[j], y=-0.08,
-                xref='x', yref='y2',
-                text=input_text,
-                showarrow=False,
-                font=dict(size=7, color='#888'),
-                textangle=-45,
-                xanchor='right'
-            ))
+            annotations.append(dict(x=x_positions[j], y=-0.08, xref='x', yref='y2', text=input_text, showarrow=False, font=dict(size=7, color='#888'), textangle=-45, xanchor='right'))
 
-        # 布局 / レイアウト
         y_range = [-0.05, 1.05]
+        fig.update_layout(title=dict(text=f'User {uid}<br>', x=0.5, font=dict(size=15)), height=1000, width=max(1200, n * 100 + 300), template='plotly_white', legend=dict(orientation='h', yanchor='top', y=-0.12, xanchor='center', x=0.5, font=dict(size=10)), margin=dict(l=80, r=80, t=150, b=200), annotations=annotations)
 
-        fig.update_layout(
-            title=dict(
-                text=f'User {short_id}<br>',
-                x=0.5, font=dict(size=15)
-            ),
-            height=1000,
-            width=max(1200, n * 100 + 300),
-            template='plotly_white',
-            barmode='group',
-            legend=dict(
-                orientation='h',
-                yanchor='top',
-                y=-0.12,
-                xanchor='center',
-                x=0.5,
-                font=dict(size=10)
-            ),
-            margin=dict(l=80, r=80, t=150, b=200),
-            annotations=annotations,
-        )
+        reply_ticktext = [f"{j+1}<br><span style='font-size:8px;color:#666'>{user_conv.iloc[j].get('reply_persona', '')}</span>" if user_conv.iloc[j].get('reply_persona', '') else str(j+1) for j in range(n)]
+        fig.update_xaxes(title_text='对话序号', row=1, col=1, tickvals=x_positions, ticktext=reply_ticktext, range=[0.3, n + 0.7])
+        fig.update_yaxes(title_text='情感分数', row=1, col=1, range=y_range, showgrid=True, gridcolor='#f0f0f0')
+        fig.update_xaxes(title_text='对话序号', row=2, col=1, tickvals=x_positions, range=[0.3, n + 0.7])
+        fig.update_yaxes(title_text='情感分数', row=2, col=1, range=y_range, showgrid=True, gridcolor='#f0f0f0')
 
-        # Row 1 (Reply折线): x轴刻度旁显示reply_persona
-        # Row 1（Reply折れ線）: x軸の目盛り横にreply_personaを表示
-        reply_ticktext = []
-        for j in range(n):
-            persona = user_conv.iloc[j].get('reply_persona', '')
-            if persona:
-                reply_ticktext.append(f"{j+1}<br><span style='font-size:8px;color:#666'>{persona}</span>")
-            else:
-                reply_ticktext.append(str(j+1))
-        fig.update_xaxes(title_text='对话序号/やり取り番号', row=1, col=1, tickvals=x_positions, ticktext=reply_ticktext, range=[0.3, n + 0.7])
-        fig.update_yaxes(title_text='情感分数/点数', row=1, col=1, range=y_range, showgrid=True, gridcolor='#f0f0f0')
-
-        # Row 2 (Input折线): x轴普通刻度
-        # Row 2（Input折れ線）: x軸は通常の目盛り
-        fig.update_xaxes(title_text='对话序号/やり取り番号', row=2, col=1, tickvals=x_positions, range=[0.3, n + 0.7])
-        fig.update_yaxes(title_text='情感分数/点数', row=2, col=1, range=y_range, showgrid=True, gridcolor='#f0f0f0')
-
-        output_path = charts_dir / f'user_{short_id}'
+        output_path = charts_dir / f'user_{uid}'
         export_fig(fig, output_path)
         generated_files.append(output_path)
-        print(f"  {output_path.name}.html")
 
-    print(f"\n共生成 {len(generated_files)} 个图表，保存至: {charts_dir} / {len(generated_files)} 個のグラフを生成、保存先: {charts_dir}")
+    print(f"Generated {len(generated_files)} charts in {charts_dir}")
     return generated_files
-
-
 
 
 if __name__ == "__main__":
     import time
     start_time = time.time()
 
-    # 加载并分析 / ロードして分析
     df = process_dataset(config.DATA_DIR / 'data_with_id.csv')
-
-    # 构建对话结构 / 会話構造を構築
     conv_df = build_conversations(df)
-
-    # 用户统计 / ユーザー統計
     stats = compute_user_statistics(conv_df)
 
-    # 保存 / 保存
-    output_csv = SENTIMENT_DIR / 'sentiment.csv'
-    df.to_csv(output_csv, index=False, encoding='utf-8-sig')
-    print(f"\n情感明细已保存至: {output_csv} / 感情詳細を保存しました: {output_csv}")
+    df.to_csv(SENTIMENT_DIR / 'sentiment.csv', index=False, encoding='utf-8-sig')
+    conv_df.to_csv(SENTIMENT_DIR / 'conversations.csv', index=False, encoding='utf-8-sig')
+    stats.to_csv(SENTIMENT_DIR / 'sentiment_stats.csv', index=False, encoding='utf-8-sig')
 
-    conv_csv = SENTIMENT_DIR / 'conversations.csv'
-    conv_df.to_csv(conv_csv, index=False, encoding='utf-8-sig')
-    print(f"对话汇总已保存至: {conv_csv} / 会話サマリーを保存しました: {conv_csv}")
-
-    stats_csv = SENTIMENT_DIR / 'sentiment_stats.csv'
-    stats.to_csv(stats_csv, index=False, encoding='utf-8-sig')
-    print(f"用户统计已保存至: {stats_csv} / ユーザー統計を保存しました: {stats_csv}")
-
-    # 生成图表 / グラフを生成
     create_charts(conv_df, 'charts_wrime')
 
-    elapsed = time.time() - start_time
-    print(f"全部处理完成！总耗时: {elapsed:.1f}秒 / 全ての処理完了！総経過時間: {elapsed:.1f}秒")
-    print(f"输出文件 ({SENTIMENT_DIR}): / 出力ファイル ({SENTIMENT_DIR}):")
-    print(f"  - sentiment_wrime.csv        (情感分析明细 / 感情分析詳細)")
-    print(f"  - conversations_wrime.csv    (对话汇总 / 会話サマリー)")
-    print(f"  - sentiment_stats_wrime.csv  (用户统计 / ユーザー統計)")
-    print(f"  - charts_wrime/              (每个用户独立图表 / 各ユーザーの個別グラフ)")
+    print(f"Done in {time.time() - start_time:.1f}s")
+    print(f"Output: {SENTIMENT_DIR}")
