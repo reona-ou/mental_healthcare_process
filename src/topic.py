@@ -336,6 +336,8 @@ def run_topic_modeling(
     for i, topic_idx in enumerate(long_indices):
         topics[topic_idx] = topics_long[i]
     if probs_long is not None:
+        if probs_long.ndim == 1:
+            probs_long = probs_long.reshape(-1, 1)
         probs = np.zeros((len(valid_texts), probs_long.shape[1]))
         for i, topic_idx in enumerate(long_indices):
             probs[topic_idx] = probs_long[i]
