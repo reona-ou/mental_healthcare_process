@@ -21,6 +21,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.model_selection import cross_val_score
+import joblib
 
 sys.path.insert(0, str(Path(__file__).parent))
 import config
@@ -310,6 +311,13 @@ def run_classification():
 
     print(f"\n  最佳分类器: {best_name} (F1={best_f1:.3f})")
     best_clf.fit(X_train, y_train)
+
+    # 保存模型和种子标签
+    model_dir = config.MODELS_DIR / "negative_classifier"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    joblib.dump(best_clf, model_dir / "classifier.joblib")
+    joblib.dump(seed_labels, model_dir / "seed_labels.joblib")
+    print(f"  模型已保存: {model_dir / 'classifier.joblib'}")
 
     # 5. 预测所有文档
     print("\n[5] 预测所有文档...")
