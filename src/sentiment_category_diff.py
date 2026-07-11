@@ -1,3 +1,9 @@
+"""
+感情差分のクラスタリング・トピック可視化
+- UMAP + HDBSCAN によるクラスタリング
+- カテゴリ別 (category 0/1) の可視化
+- 全データ統一クラスタリング
+"""
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
@@ -14,6 +20,7 @@ import warnings
 warnings.filterwarnings('ignore')
 import config
 
+# データ読み込み
 df_all = pd.read_csv(config.DATA_DIR / 'sentiment/sentiment_all_diff.csv', on_bad_lines='warn')
 df_category = pd.read_csv(config.DATA_DIR / '2category_all.csv', on_bad_lines='warn')
 
@@ -32,7 +39,7 @@ df_all.drop(columns=['original_text'], inplace=True, errors='ignore')
 df_all['topic'] = df_all['topic_id_detail'].fillna(df_all.get('topic_id', -1)).fillna(-1).astype(int)
 df_all.drop(columns=['topic_id', 'topic_id_detail'], errors='ignore', inplace=True)
 
-print(f"Data: {len(df_all)}")
+print(f"データ数: {len(df_all)}")
 
 emotion_categories = ['joy', 'sadness', 'anticipation', 'surprise', 'anger', 'fear', 'disgust', 'trust']
 diff_features = [f'diff_{e}' for e in emotion_categories]
@@ -56,19 +63,23 @@ FIG_LARGE_W, FIG_LARGE_H = 1400, 800
 
 
 def export_fig(fig, base_path):
+    """HTML + SVG の2形式で出力"""
     fig.write_html(str(base_path) + '.html')
     fig.write_image(str(base_path) + '.svg', width=FIG_WIDE_W, height=FIG_WIDE_H, scale=1)
 
 
 def make_hover_text(row):
+    """ホバーテキストを生成"""
     return f"session: {row['session_id']}<br>persona: {row.get('persona', '?')}<br>replyType: {row.get('replyType', '?')}<br>topic: {row.get('topic', '?')}<br>input: {str(row.get('userInput', ''))[:40]}..."
 
 
 def make_radar_layout(title, width=1400, height=700):
+    """レーダーチャートのレイアウト"""
     return dict(title=dict(text=title, x=0.5, font=dict(size=18), y=0.98), polar=dict(radialaxis=dict(visible=True, range=[-0.5, 0.5]), bgcolor='white'), width=width, height=height, paper_bgcolor='white', legend=dict(font=dict(size=10), x=0.5, y=-0.1, orientation='h', xanchor='center'), margin=dict(l=80, r=80, t=100, b=80))
 
 
 def plot_condensed_tree(clusterer, title, output_path):
+    """HDBSCANの凝縮樹図を描画"""
     fig, ax = plt.subplots(figsize=(16, 8))
     clusterer.condensed_tree_.plot(axis=ax)
     ax.set_title(title, fontsize=16)
@@ -78,11 +89,12 @@ def plot_condensed_tree(clusterer, title, output_path):
 
 
 def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
+    """UMAP → HDBSCAN パイプラインを実行"""
     has_clusters = 'cluster' in df_cat.columns
 
     if not has_clusters:
-        print(f"Category {cat_label} (n={len(df_cat)})")
-        print(f"Pipeline: StandardScaler → UMAP({umap_dim}D, cosine) → HDBSCAN")
+        print(f"カテゴリ {cat_label} (n={len(df_cat)})")
+        print(f"パイプライン: StandardScaler → UMAP({umap_dim}D, cosine) → HDBSCAN")
 
     X = df_cat[cluster_features].fillna(0)
 
@@ -108,7 +120,7 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
 
     if not has_clusters and n_clusters >= 2 and (labels != -1).sum() >= 20:
         mask = labels != -1
-        print(f"  HDBSCAN: {n_clusters} clusters, noise {noise}")
+        print(f"  HDBSCAN: {n_clusters}クラスタ, ノイズ {noise}件")
         print(f"  Silhouette: {silhouette_score(X_umap[mask], labels[mask]):.4f}")
         print(f"  Calinski-Harabasz: {calinski_harabasz_score(X_umap[mask], labels[mask]):.2f}")
         print(f"  Davies-Bouldin: {davies_bouldin_score(X_umap[mask], labels[mask]):.4f}")
@@ -123,6 +135,7 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
         df_ratings[col] = pd.to_numeric(df_ratings[col], errors='coerce')
     df_valid = df_valid.merge(df_ratings, on='userId', how='left')
 
+    # UMAP 散布図
     dim = X_umap.shape[1]
     fig_scatter = go.Figure()
     for cl in sorted(unique):
@@ -140,6 +153,7 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
     if not has_clusters and hasattr(clusterer, 'condensed_tree_'):
         plot_condensed_tree(clusterer, f'Category {cat_label} — HDBSCAN Condensed Tree', output_dir / f'category{cat_label}_diff_condensed_tree')
 
+    # t-SNE（元空間で確認）
     X_tsne = TSNE(n_components=2, random_state=config.CLUSTER_RANDOM_SEED, perplexity=max(5, min(30, len(df_cat)//4))).fit_transform(X_scaled)
     fig_tsne = go.Figure()
     for cl in sorted(unique):
@@ -151,6 +165,7 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
     fig_tsne.update_layout(title=dict(text=f'Category {cat_label} — Diff t-SNE', x=0.5, font=dict(size=18)), xaxis_title='t-SNE 1', yaxis_title='t-SNE 2', width=FIG_W, height=FIG_H, plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=60, r=60, t=100, b=60))
     export_fig(fig_tsne, output_dir / f'category{cat_label}_diff_tsne')
 
+    # レーダーチャート（差分バージョン）
     valid_clusters = sorted(df_valid['cluster'].unique())
     fig_radar = go.Figure()
     for cl in valid_clusters:
@@ -251,8 +266,9 @@ n_clusters_all = len(unique_all - {-1})
 noise_all = int((labels_all == -1).sum())
 mask_all = labels_all != -1
 
+# 評価指標の計算
 if n_clusters_all >= 2 and mask_all.sum() >= 20:
-    print(f"HDBSCAN: {n_clusters_all} clusters, noise {noise_all}")
+    print(f"HDBSCAN: {n_clusters_all}クラスタ, ノイズ {noise_all}件")
     print(f"Silhouette: {silhouette_score(X_umap_all[mask_all], labels_all[mask_all]):.4f}")
     print(f"Calinski-Harabasz: {calinski_harabasz_score(X_umap_all[mask_all], labels_all[mask_all]):.2f}")
     print(f"Davies-Bouldin: {davies_bouldin_score(X_umap_all[mask_all], labels_all[mask_all]):.4f}")
@@ -260,6 +276,7 @@ if n_clusters_all >= 2 and mask_all.sum() >= 20:
 df_valid_all = df_all[df_all['cluster'] != -1]
 cluster_centers_all = df_valid_all.groupby('cluster')[cluster_features].mean()
 
+# 全体のUMAP可視化
 fig_scatter_all = go.Figure()
 for cl in sorted(unique_all):
     mask_cl = df_all['cluster'] == cl
@@ -272,8 +289,10 @@ for cl in sorted(unique_all):
 fig_scatter_all.update_layout(title=dict(text='All Data — Diff UMAP 2D', x=0.5, font=dict(size=18)), xaxis_title='UMAP 1', yaxis_title='UMAP 2', paper_bgcolor='white', plot_bgcolor='white', width=FIG_W, height=FIG_H, margin=dict(l=60, r=60, t=100, b=60))
 export_fig(fig_scatter_all, output_dir / 'all_diff_umap_2d')
 
+# 凝縮樹図
 plot_condensed_tree(clusterer_all, 'All Data — HDBSCAN Condensed Tree', output_dir / 'all_diff_condensed_tree')
 
+# t-SNE
 X_tsne_all = TSNE(n_components=2, random_state=config.CLUSTER_RANDOM_SEED, perplexity=max(5, min(30, len(df_all)//4))).fit_transform(X_scaled_all)
 fig_tsne_all = go.Figure()
 for cl in sorted(unique_all):
@@ -285,6 +304,7 @@ for cl in sorted(unique_all):
 fig_tsne_all.update_layout(title=dict(text='All Data — Diff t-SNE', x=0.5, font=dict(size=18)), xaxis_title='t-SNE 1', yaxis_title='t-SNE 2', width=FIG_W, height=FIG_H, plot_bgcolor='white', paper_bgcolor='white', margin=dict(l=60, r=60, t=100, b=60))
 export_fig(fig_tsne_all, output_dir / 'all_diff_tsne')
 
+# レーダーチャート
 valid_clusters_all = sorted(df_valid_all['cluster'].unique())
 fig_radar_all = go.Figure()
 for cl in valid_clusters_all:
@@ -302,6 +322,7 @@ for col in RATING_COLS:
     df_ratings[col] = pd.to_numeric(df_ratings[col], errors='coerce')
 df_valid_all_r = df_valid_all.merge(df_ratings, on='userId', how='left')
 
+# ユーザー評点箱ひげ図
 fig_rating_all = go.Figure()
 for cl in valid_clusters_all:
     subset = df_valid_all_r[df_valid_all_r['cluster'] == cl]
@@ -311,6 +332,7 @@ fig_rating_all.update_layout(title=dict(text='All Data — ユーザー評点分
 export_fig(fig_rating_all, output_dir / 'all_diff_rating_boxplot')
 
 n_cl_all = len(valid_clusters_all)
+# 感情差分ジッタープロット
 fig_jitter_all = make_subplots(rows=1, cols=n_cl_all, subplot_titles=[f'Cluster {cl} (n={len(df_valid_all[df_valid_all["cluster"]==cl])})' for cl in valid_clusters_all], horizontal_spacing=0.06)
 all_diffs_all = []
 for ci, cl in enumerate(valid_clusters_all):
@@ -337,6 +359,7 @@ for ci in range(n_cl_all):
     fig_jitter_all.update_layout(**{axis_key: dict(range=[-jitter_bound_all, jitter_bound_all])})
 export_fig(fig_jitter_all, output_dir / 'all_diff_jitter')
 
+# 統計指標比較
 fig_stats_all = make_subplots(rows=2, cols=2, subplot_titles=['Mean', 'Max', 'Min', 'Standard Deviation'], horizontal_spacing=0.1, vertical_spacing=0.15)
 stats_all_vals = []
 for cl in valid_clusters_all:
@@ -370,6 +393,7 @@ if 'topic' in df_all.columns:
 df_all.to_csv(output_dir / 'all_diff_clusters.csv', index=False, encoding='utf-8-sig')
 cluster_centers_all.to_csv(output_dir / 'all_diff_centers.csv', encoding='utf-8-sig')
 
+# カテゴリ別可視化
 for cat_label in [0, 1]:
     cat_dir = output_dir / f'category{cat_label}'
     cat_dir.mkdir(parents=True, exist_ok=True)
@@ -380,4 +404,4 @@ df_result0 = pd.read_csv(output_dir / 'category0' / 'category0_diff_clusters.csv
 df_result1 = pd.read_csv(output_dir / 'category1' / 'category1_diff_clusters.csv', on_bad_lines='warn')
 pd.concat([df_result0, df_result1], ignore_index=True).to_csv(output_dir / 'all_diff_clusters.csv', index=False, encoding='utf-8-sig')
 
-print("Done")
+print("完了")
