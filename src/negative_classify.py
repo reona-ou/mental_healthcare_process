@@ -17,7 +17,9 @@ import torch
 import pandas as pd
 import numpy as np
 from pathlib import Path
+from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.model_selection import cross_val_score
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -199,29 +201,43 @@ def generate_seed_labels(df: pd.DataFrame) -> dict[int, int]:
         if not user_text.strip() or pd.isna(tid):
             continue
 
-        # Topic 5 (离婚出轨) → 大概率 category 0
+        # Topic 5 (离婚出轨) → 全部 category 0
         if tid == 5:
             seed_labels[idx] = 0
             continue
 
-        # Topic 2 (产后哺乳)、Topic 6 (产后睡眠) → 大概率 category 1
+        # Topic 2 (产后哺乳)、Topic 6 (产后睡眠) → 全部 category 1
         if tid in (2, 6):
             seed_labels[idx] = 1
             continue
 
-        # Topic 3 (流产妊娠) → 需要进一步判断
+        # Topic 3 (流产妊娠) → 流产相关 category 0，其他 category 1
         if tid == 3:
-            # 如果包含流产相关词汇，标记为 0
             if any(kw in user_text for kw in ["流産", "死産", "中絶"]):
                 seed_labels[idx] = 0
             else:
                 seed_labels[idx] = 1
             continue
 
-        # Topic 0 (育儿支持/诈骗) → 需要进一步判断
+        # Topic 0 (育儿支持/诈骗) → 诈骗 category 0，其他 category 1
         if tid == 0:
-            # 如果包含诈骗相关词汇，标记为 0
-            if any(kw in user_text for kw in ["詐欺", "騙", "フィッシング", "登録するだけで"]):
+            if any(kw in user_text for kw in ["詐欺", "騙", "フィッシング", "登録するだけで", "ベビーモデル", "掲載料"]):
+                seed_labels[idx] = 0
+            else:
+                seed_labels[idx] = 1
+            continue
+
+        # Topic 1 (育儿离婚) → 离婚/DV/自杀相关 category 0，其他 category 1
+        if tid == 1:
+            if any(kw in user_text for kw in ["離婚", "DV", "暴力", "死にたい", "消えたい", "自殺", "終わらせたい"]):
+                seed_labels[idx] = 0
+            else:
+                seed_labels[idx] = 1
+            continue
+
+        # Topic 4 (人际关系咨询) → DV/モラハラ category 0，其他 category 1
+        if tid == 4:
+            if any(kw in user_text for kw in ["DV", "暴力", "モラハラ", "パワハラ", "無視", "冷たい"]):
                 seed_labels[idx] = 0
             else:
                 seed_labels[idx] = 1
@@ -265,27 +281,39 @@ def run_classification():
     print(f"  category 0 (种子): {n_cat0} 件")
     print(f"  category 1 (种子): {n_cat1} 件")
 
-    # 4. 训练分类器
-    print("\n[4] 训练 SVM 分类器...")
+    # 4. 训练分类器（尝试多种）
+    print("\n[4] 训练分类器...")
     train_indices = list(seed_labels.keys())
     X_train = embeddings[train_indices]
     y_train = [seed_labels[i] for i in train_indices]
 
-    clf = SVC(
-        kernel="rbf",
-        probability=True,
-        class_weight="balanced",
-        random_state=RANDOM_SEED,
-    )
-    clf.fit(X_train, y_train)
+    classifiers = {
+        "LogisticRegression": LogisticRegression(max_iter=1000, class_weight="balanced", random_state=RANDOM_SEED),
+        "SVM-RBF": SVC(kernel="rbf", probability=True, class_weight="balanced", random_state=RANDOM_SEED),
+        "SVM-Linear": SVC(kernel="linear", probability=True, class_weight="balanced", random_state=RANDOM_SEED),
+        "RandomForest": RandomForestClassifier(n_estimators=100, class_weight="balanced", random_state=RANDOM_SEED),
+        "GradientBoosting": GradientBoostingClassifier(n_estimators=100, random_state=RANDOM_SEED),
+    }
 
-    # 交叉验证
-    cv_scores = cross_val_score(clf, X_train, y_train, cv=min(5, len(train_indices)), scoring="f1")
-    print(f"  交叉验证 F1: {cv_scores.mean():.3f} (±{cv_scores.std():.3f})")
+    best_clf = None
+    best_f1 = 0
+    best_name = ""
+
+    for name, clf in classifiers.items():
+        cv_scores = cross_val_score(clf, X_train, y_train, cv=min(5, len(train_indices)), scoring="f1")
+        f1_mean = cv_scores.mean()
+        print(f"  {name}: F1={f1_mean:.3f} (±{cv_scores.std():.3f})")
+        if f1_mean > best_f1:
+            best_f1 = f1_mean
+            best_clf = clf
+            best_name = name
+
+    print(f"\n  最佳分类器: {best_name} (F1={best_f1:.3f})")
+    best_clf.fit(X_train, y_train)
 
     # 5. 预测所有文档
     print("\n[5] 预测所有文档...")
-    all_probs = clf.predict_proba(embeddings)
+    all_probs = best_clf.predict_proba(embeddings)
 
     confidence_threshold = 0.85
     categories = []
