@@ -1,13 +1,12 @@
 import sys
-import os
 import json
 import warnings
 import torch
 import pandas as pd
 import numpy as np
 from pathlib import Path
+from collections import Counter
 
-# 将项目根目录添加到路径 / プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent))
 
 import config
@@ -20,12 +19,10 @@ from umap import UMAP
 
 warnings.filterwarnings("ignore")
 
-# 加载种子话题配置 / シードトピック設定の読み込み
 SEED_TOPICS_PATH = Path(__file__).parent / "seed_topics.json"
 with open(SEED_TOPICS_PATH, "r", encoding="utf-8") as f:
     SEED_CONFIG = json.load(f)
 
-# BERTopic 用的种子话题（用于引导聚类）
 BERTOPIC_SEED_TOPICS = [
     ["離婚", "別れたい", "別居", "親権", "離婚届"],
     ["浮気", "不倫", "愛人", "二股", "浮気相手"],
@@ -37,46 +34,30 @@ BERTOPIC_SEED_TOPICS = [
     ["眠れない", "食欲", "頭痛", "疲労", "産後"],
 ]
 
-# 设置 — 本地模型优先 / 設定 — ローカルモデル優先
 LOCAL_MODEL_PATH = config.MODELS_DIR / "ruri-v3-310m"
 MODEL_NAME = str(LOCAL_MODEL_PATH) if LOCAL_MODEL_PATH.exists() else "cl-nagoya/ruri-v3-310m"
 RANDOM_SEED = config.TOPIC_RANDOM_SEED
-MIN_TOPIC_SIZE = config.TOPIC_MIN_TOPIC_SIZE
 
-# 如果 CUDA 可用则使用 GPU / CUDA が利用可能なら GPU を使用
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"使用设备 / 使用デバイス: {DEVICE}")
+print(f"使用设备: {DEVICE}")
 
-# 初始化 fugashi 分词器 / fugashi タガーの初期化
 tagger = Tagger()
 
-# 词性过滤：仅保留名词、动词、形容词 / 品詞フィルタ：名詞・動詞・形容詞のみを残す
 KEEP_POS = {"名詞", "動詞", "形容詞"}
 PUNCTUATION_POS = {"補助記号", "記号", "助詞", "助動詞", "接続詞", "感動詞", "接頭詞", "接尾詞"}
 
-# 停用词表：过滤极其常见的泛化词 / ストップワード：一般的すぎる単語を除外
 STOPWORDS = {
-    # 极其常见的泛化动词/形容词
     "御座る", "分かる", "言う", "無い", "有る", "居る", "為る", "呉れる",
     "思う", "出る", "来る", "行く", "見る", "良い", "悪い",
-    # 敬语形式
     "下さる", "頂く", "致す",
-    # 助词/助动词（虽然已通过 POS 过滤，但某些形式可能漏过）
     "ます", "です", "た", "て", "で",
-    # 其他高频泛化词
     "成る", "置く", "付く", "持つ", "入る", "使う", "知る", "話す",
-    # fugashi 分词伪影词
     "仕舞う", "れる", "られる", "ある", "いる", "する", "なる",
     "える", "やすい", "にくい", "方", "遣る", "凄い", "旨い", "レン",
 }
 
 
 def tokenize_with_fugashi(text: str) -> str:
-    """
-    使用 fugashi 进行形态素解析，
-    将名词、动词、形容词的原形以空格分隔返回。
-    作为 BERTopic 的 CountVectorizer 的预处理。
-    """
     if not isinstance(text, str) or not text.strip():
         return ""
     tokens = []
@@ -86,34 +67,24 @@ def tokenize_with_fugashi(text: str) -> str:
             continue
         if pos in KEEP_POS:
             lemma = word.feature.lemma if word.feature.lemma else word.surface
-            # 清理 lemma：去除英文后缀（如 toilet-toilet -> toilet）
             if "-" in lemma:
                 lemma = lemma.split("-")[0]
-            # 过滤停用词
             if lemma not in STOPWORDS:
                 tokens.append(lemma)
     return " ".join(tokens)
 
 
-# 后处理函数：基于统计距离过滤异常文档
 def verify_and_reassign(
     topics: list[int],
     embeddings: np.ndarray,
-    valid_texts: list[str],
     topic_model,
     z_threshold: float = 2.0,
 ) -> list[int]:
-    """
-    基于统计距离过滤异常文档。
-    对每个 topic，计算文档到中心点的距离。
-    如果距离超过 mean + z_threshold * std，标记为 -1。
-    """
     from sklearn.metrics.pairwise import cosine_distances
 
     new_topics = list(topics)
     marked_outlier = 0
 
-    # 计算每个 topic 的中心点
     topic_centroids = {}
     for tid in set(topics):
         if tid == -1:
@@ -122,35 +93,25 @@ def verify_and_reassign(
         if indices:
             topic_centroids[tid] = np.mean(embeddings[indices], axis=0)
 
-    # 计算每个 topic 的距离统计
     topic_stats = {}
     for tid, centroid in topic_centroids.items():
         indices = [i for i, t in enumerate(topics) if t == tid]
         if len(indices) < 2:
             continue
         dists = cosine_distances(embeddings[indices], [centroid]).flatten()
-        topic_stats[tid] = {
-            "mean": np.mean(dists),
-            "std": np.std(dists),
-        }
+        topic_stats[tid] = {"mean": np.mean(dists), "std": np.std(dists)}
 
     for i, (tid, emb) in enumerate(zip(topics, embeddings)):
-        if tid == -1:
+        if tid == -1 or tid not in topic_stats:
             continue
-
-        if tid not in topic_stats:
-            continue
-
         dist = cosine_distances([emb], [topic_centroids[tid]])[0][0]
         mean = topic_stats[tid]["mean"]
         std = topic_stats[tid]["std"]
-
-        # 如果距离超过 mean + z_threshold * std，标记为 -1
         if std > 0 and dist > mean + z_threshold * std:
             new_topics[i] = -1
             marked_outlier += 1
 
-    print(f"  验证：标记为 -1 {marked_outlier} 篇（距离 > mean + {z_threshold} * std）")
+    print(f"  验证：标记为 -1 {marked_outlier} 篇")
     return new_topics
 
 
@@ -159,18 +120,14 @@ def run_topic_modeling(
     dataset_name: str,
     text_type: str,
     output_dir: Path,
-    n_topics: int | None = None,
     source_df: pd.DataFrame | None = None,
 ):
-    """
-    对给定的文本列表执行话题建模。
-    """
     print(f"  话题建模: {dataset_name} / {text_type}")
-    print(f"  文本数: {len(texts)} / テキスト数: {len(texts)}")
+    print(f"  文本数: {len(texts)}")
 
     valid_texts = [t for t in texts if isinstance(t, str) and t.strip()]
     if len(valid_texts) < 3:
-        print(f"  ⚠ 有效文本仅有{len(valid_texts)}条，跳过处理")
+        print(f"  有效文本仅有{len(valid_texts)}条，跳过处理")
         return
 
     print(f"  有效文本数: {len(valid_texts)}")
@@ -178,14 +135,11 @@ def run_topic_modeling(
     print("正在使用 fugashi 进行形态素解析与预处理...")
     tokenized_texts = [tokenize_with_fugashi(t) for t in valid_texts]
 
-    # 识别短文本（tokenized 后少于 2 个词），这些文本不参与聚类
     short_threshold = 2
     short_indices = [i for i, t in enumerate(tokenized_texts) if len(t.split()) < short_threshold]
     long_indices = [i for i in range(len(valid_texts)) if i not in short_indices]
-    print(f"  短文本（< {short_threshold} 词）: {len(short_indices)} 篇，不参与聚类")
-    print(f"  参与聚类文本: {len(long_indices)} 篇")
+    print(f"  短文本: {len(short_indices)} 篇, 参与聚类: {len(long_indices)} 篇")
 
-    # 只对长文本进行聚类
     long_texts = [valid_texts[i] for i in long_indices]
     long_tokenized = [tokenized_texts[i] for i in long_indices]
 
@@ -209,16 +163,14 @@ def run_topic_modeling(
     )
 
     vectorizer = CountVectorizer(
-        max_df=0.85,
-        min_df=2,
+        max_df=config.TOPIC_VECTORIZER_MAX_DF,
+        min_df=config.TOPIC_VECTORIZER_MIN_DF,
         ngram_range=(1, 2),
     )
 
     from bertopic.representation import MaximalMarginalRelevance
-
     representation_model = MaximalMarginalRelevance(diversity=0.5)
 
-    # 使用 KMeans 聚类
     n_clusters = min(7, len(long_texts) // 10)
     n_clusters = max(3, n_clusters)
     km_model = KMeans(n_clusters=n_clusters, random_state=RANDOM_SEED, n_init=10)
@@ -240,16 +192,8 @@ def run_topic_modeling(
         embeddings=embeddings,
     )
 
-    # 后处理：基于 embedding 相似度验证并重新分配
-    topics_long = verify_and_reassign(
-        topics_long,
-        embeddings,
-        long_texts,
-        topic_model,
-        z_threshold=1.5,
-    )
+    topics_long = verify_and_reassign(topics_long, embeddings, topic_model, z_threshold=1.5)
 
-    # 合并结果：短文本标记为 -1，长文本使用聚类结果
     topics = [-1] * len(valid_texts)
     probs = None
     for i, topic_idx in enumerate(long_indices):
@@ -265,17 +209,11 @@ def run_topic_modeling(
     output_dir.mkdir(parents=True, exist_ok=True)
     prefix = f"{dataset_name}_{text_type}"
 
-    # 获取 BERTopic 原始话题信息
-    topic_info = topic_model.get_topic_info()
+    topic_counts = Counter(topics)
+    n_outliers = topic_counts.get(-1, 0)
+    n_valid_topics = len([t for t in topic_counts.keys() if t != -1])
+    print(f"\n  话题数: {n_valid_topics}, 离群: {n_outliers}/{len(topics)} ({(len(topics)-n_outliers)/len(topics)*100:.1f}%)")
 
-    n_valid_topics = len([t for t in topic_info["Topic"].values if t != -1])
-    n_outliers = len([t for t in topics if t == -1])
-    print(f"\n  ■ 结果摘要:")
-    print(f"    话题数: {n_valid_topics}")
-    print(f"    离群文档数: {n_outliers} / {len(topics)}")
-    print(f"    话题占比: {(len(topics) - n_outliers) / len(topics) * 100:.1f}%")
-
-    # 保存 doc_topics.csv
     doc_topics = pd.DataFrame({
         "document_index": range(len(valid_texts)),
         "original_text": valid_texts,
@@ -286,11 +224,8 @@ def run_topic_modeling(
         doc_topics["topic_probability"] = probs.max(axis=1) if probs.ndim > 1 else probs
     doc_topics_path = output_dir / f"{prefix}_doc_topics.csv"
     doc_topics.to_csv(doc_topics_path, index=False, encoding="utf-8-sig")
-    print(f"  → 文档-话题分配结果: {doc_topics_path}")
+    print(f"  → {doc_topics_path}")
 
-    # 保存话题信息
-    from collections import Counter
-    topic_counts = Counter(topics)
     topic_info_list = []
     for topic_id in sorted(topic_counts.keys()):
         if topic_id == -1:
@@ -298,17 +233,12 @@ def run_topic_modeling(
         else:
             kws = topic_model.get_topic(topic_id)
             name = f"{topic_id}_{kws[0][0]}_{kws[1][0]}_{kws[2][0]}" if kws else f"{topic_id}_unknown"
-        topic_info_list.append({
-            "Topic": topic_id,
-            "Count": topic_counts[topic_id],
-            "Name": name,
-        })
+        topic_info_list.append({"Topic": topic_id, "Count": topic_counts[topic_id], "Name": name})
     topic_info_df = pd.DataFrame(topic_info_list)
     topic_info_path = output_dir / f"{prefix}_topic_info.csv"
     topic_info_df.to_csv(topic_info_path, index=False, encoding="utf-8-sig")
-    print(f"  → トピック情報: {topic_info_path}")
+    print(f"  → {topic_info_path}")
 
-    # 保存话题关键词
     all_keywords = []
     for topic_id in sorted(topic_counts.keys()):
         if topic_id == -1:
@@ -316,26 +246,13 @@ def run_topic_modeling(
         kws = topic_model.get_topic(topic_id)
         if kws:
             for word, score in kws:
-                all_keywords.append({
-                    "topic_id": topic_id,
-                    "keyword": word,
-                    "score": score,
-                })
+                all_keywords.append({"topic_id": topic_id, "keyword": word, "score": score})
     keywords_df = pd.DataFrame(all_keywords)
     keywords_path = output_dir / f"{prefix}_topic_keywords.csv"
     keywords_df.to_csv(keywords_path, index=False, encoding="utf-8-sig")
-    print(f"  → 话题关键词: {keywords_path}")
+    print(f"  → {keywords_path}")
 
-    # 话题统计
-    from collections import Counter
-    topic_counts = Counter(topics)
-    n_outliers_after = topic_counts.get(-1, 1)
-    print(f"\n  ■ 结果摘要:")
-    print(f"    话题数: {n_valid_topics}")
-    print(f"    离群文档数: {n_outliers_after} / {len(topics)}")
-    print(f"    话题占比: {(len(topics) - n_outliers_after) / len(topics) * 100:.1f}%")
-
-    print(f"\n  ■ 话题一览:")
+    print(f"\n  话题一览:")
     for topic_id in sorted(topic_counts.keys()):
         if topic_id == -1:
             continue
@@ -344,15 +261,11 @@ def run_topic_modeling(
     return topic_model
 
 
-# 主处理逻辑 / メイン処理
 if __name__ == "__main__":
     output_dir = config.DATA_DIR / "topic_modeling"
-    temp_dir = Path(__file__).parent.parent / "temp"
-    temp_dir.mkdir(parents=True, exist_ok=True)
 
     print("正在加载数据...")
     df_with_id = pd.read_csv(config.DATA_DIR / "data_with_id.csv")
-
     print(f"data_with_id: {len(df_with_id)} 行")
 
     all_input_texts = df_with_id["userInput"].fillna("").tolist()
@@ -364,5 +277,4 @@ if __name__ == "__main__":
         source_df=df_with_id,
     )
 
-    print(f"  话题建模完成！")
-    print(f"  结果输出目录: {output_dir}")
+    print(f"  话题建模完成！输出目录: {output_dir}")
