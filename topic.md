@@ -6,11 +6,11 @@ ruri-v3-310m 埋め込みモデル + KMeans クラスタリング + 半教師シ
 
 | 指標 | 値 | 説明 |
 |---|---|---|
-| 入力データ | combined userInput | 2チャットボットのユーザー入力統合 |
-| 総文書数 | 182件 | 全セッション数 |
-| 有効トピック数 | 7 | 有効な話題数 |
-| 外れ値 | 35件 (19.2%) | 短文 + 統計異常 |
-| トピックカバレッジ | 80.8% | トピックに分類された文書の割合 |
+| 入力データ | combined userInput | 2チャットボットのユーザー入力統合 / Combined user inputs from 2 chatbots |
+| 総文書数 | 182件 | 全セッション数 / Total sessions |
+| 有効トピック数 | 7 | 有効な話題数 / Valid topics |
+| 外れ値 | 35件 (19.2%) | 短文 + 統計異常 / Short texts + statistical outliers |
+| トピックカバレッジ | 80.8% | トピックに分類された文書の割合 / Topic coverage rate |
 
 ---
 
@@ -198,50 +198,43 @@ BERTopic トピック表現
 
 | トピック | 件数 | 割合 | 内容 |
 |---|---|---|---|
-| -1 (外れ値) | 35 | 19.2% | 短文 + 統計異常 |
-| 0 | 27 | 14.8% | 育児支援・地域 |
-| 1 | 24 | 13.2% | 育児・離婚 |
-| 2 | 23 | 12.6% | 産後・授乳 |
-| 3 | 21 | 11.5% | 流産・妊娠 |
-| 4 | 20 | 11.0% | 人間関係・相談 |
-| 5 | 18 | 9.9% | 離婚・浮気 |
-| 6 | 14 | 7.7% | 産後睡眠 |
+| -1 (外れ値) | 35 | 19.2% | 短文 + 統計異常 / Short texts + statistical outliers |
+| 0 | 27 | 14.8% | 育児支援・地域 / Parenting Support & Community |
+| 1 | 24 | 13.2% | 育児・離婚 / Parenting & Divorce |
+| 2 | 23 | 12.6% | 産後・授乳 / Postpartum & Breastfeeding |
+| 3 | 21 | 11.5% | 流産・妊娠 / Miscarriage & Pregnancy |
+| 4 | 20 | 11.0% | 人間関係・相談 / Interpersonal & Consultation |
+| 5 | 18 | 9.9% | 離婚・浮気 / Divorce & Infidelity |
+| 6 | 14 | 7.7% | 産後睡眠 / Postpartum Sleep |
 
 ---
 
 ## 詐欺関連の分類について / About Fraud Classification
 
-### 現状
+### 現状 / Current Status
 詐欺関連文書（14件）は、独立したトピックとして分類されていない。理由は以下の通り：
 
-1. **データ量不足**: 詐欺文書は全体の7.7%（14件/182件）と少なく、独立したクラスタを形成するのに不十分
-2. **語彙の重複**: 詐欺文書には「相談」「心配」「夫」など、他のトピックと共通する語彙が含まれる
-3. **KMeansの制約**: KMeansは全文書をクラスタに強制割り当てるため、outlierとして分類されない
+1. **データ量不足**: 詐欺文書は全体の7.7%（14件/182件）と少なく、独立したクラスタを形成するのに不十分 / Insufficient data: fraud documents are only 7.7% (14/182), too few to form an independent cluster
+2. **語彙の重複**: 詐欺文書には「相談」「心配」「夫」など、他のトピックと共通する語彙が含まれる / Vocabulary overlap: fraud documents share common words with other topics
+3. **KMeansの制約**: KMeansは全文書をクラスタに強制割り当てるため、outlierとして分類されない / KMeans forces all documents into clusters, preventing outlier classification
 
-### 詐欺文書の現在の分類
+### 詐欺文書の現在の分類 / Current Fraud Distribution
 | トピック | 件数 | 内容 |
 |---|---|---|
-| Topic 0 (育児支援) | 10件 | 育児支援 + 詐欺混入 |
-| Topic 5 (離婚・浮気) | 2件 | 出転関連 + 詐欺 |
-| Topic -1 (外れ値) | 2件 | 短文 |
+| Topic 0 (育児支援) | 10件 | 育児支援 + 詐欺混入 / Parenting + fraud mixed |
+| Topic 5 (離婚・浮気) | 2件 | 出転関連 + 詐欺 / Infidelity + fraud |
+| Topic -1 (外れ値) | 2件 | 短文 / Short texts |
 
-### 2カテゴリ分類での対応
+### 2カテゴリ分類での対応 / 2-Category Classification
 topic分析とは別に、`negative_classify.py` による2カテゴリ分類では：
 - 詐欺文書は **category 0（負面）** として正しく分類されている
 - キーワードマッチング + SVM-RBF分類器により、全14件の詐欺文書が正しく識別
 
-### 改善の選択肢
-1. **現状維持**: topic分析では詐欺を独立トピックとせず、2カテゴリ分類で対応
-2. **クラスタ数増加**: cluster数を9-10に増やして詐欺分離を試みる（他のトピックが小さくなるリスク）
-3. **半教師学習**: 詐欺のシードトピックを強化して誘導（データ量不足で効果が限定的）
+Separately, `negative_classify.py` correctly classifies all fraud documents:
+- Fraud documents are classified as **category 0 (negative)**
+- All 14 fraud documents are properly identified via keyword matching + SVM-RBF
 
----
-
-## 改善内容 / Improvements
-
-以前の結果と比較して、以下の問題を解決：
-
-1. **-1 外れ値**: 49件 (26.9%) → 35件 (19.2%) に削減
-2. **トピック内容の混乱**: 伪影词（レン、仕舞う等）を除去し、キーワードの質を向上
-3. **トピック分布の均一化**: 不均一分布 (43/9/12/16/15/12/9) → 均一分布 (27/24/23/21/20/18/14)
-4. **統計距離フィルタ**: mean + 1.5 * std 閾値で異常文書を除外し、トピックの純度を向上
+### 改善の選択肢 / Options for Improvement
+1. **現状維持**: topic分析では詐欺を独立トピックとせず、2カテゴリ分類で対応 / Keep fraud in topic 0, rely on 2-category classification
+2. **クラスタ数増加**: cluster数を9-10に増やして詐欺分離を試みる（他のトピックが小さくなるリスク） / Increase clusters to 9-10 to separate fraud (risk of smaller other topics)
+3. **半教師学習**: 詐欺のシードトピックを強化して誘導（データ量不足で効果が限定的） / Strengthen fraud seed topics (limited effect due to insufficient data)
