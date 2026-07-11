@@ -5,7 +5,6 @@ BERTopic + KMeans による話題モデリング
 - 統計距離フィルタ（mean + 1.5 * std）
 """
 import sys
-import json
 import warnings
 import torch
 import pandas as pd
@@ -25,23 +24,6 @@ from umap import UMAP
 
 warnings.filterwarnings("ignore")
 
-# シードトピック設定読み込み
-SEED_TOPICS_PATH = Path(__file__).parent / "seed_topics.json"
-with open(SEED_TOPICS_PATH, "r", encoding="utf-8") as f:
-    SEED_CONFIG = json.load(f)
-
-# BERTopic用シードトピック（クラスタリング誘導用）
-BERTOPIC_SEED_TOPICS = [
-    ["離婚", "別れたい", "別居", "親権", "離婚届"],
-    ["浮気", "不倫", "愛人", "二股", "浮気相手"],
-    ["詐欺", "騙す", "騙されて", "フィッシング", "退役軍人"],
-    ["DV", "暴力", "殴", "暴言", "無視", "冷たい"],
-    ["死にたい", "消えたい", "自殺", "死のう", "終わらせたい"],
-    ["流産", "死産", "妊娠中絶", "中絶"],
-    ["赤ちゃん", "授乳", "母乳", "おっぱい", "育児"],
-    ["眠れない", "食欲", "頭痛", "疲労", "産後"],
-]
-
 # 埋め込みモデル（ローカル優先）
 LOCAL_MODEL_PATH = config.MODELS_DIR / "ruri-v3-310m"
 MODEL_NAME = str(LOCAL_MODEL_PATH) if LOCAL_MODEL_PATH.exists() else "cl-nagoya/ruri-v3-310m"
@@ -54,20 +36,12 @@ print(f"使用デバイス: {DEVICE}")
 # fugashi タガーの初期化
 tagger = Tagger()
 
-# 品詞フィルタ：名詞・動詞・形容詞のみ
-KEEP_POS = {"名詞", "動詞", "形容詞"}
-PUNCTUATION_POS = {"補助記号", "記号", "助詞", "助動詞", "接続詞", "感動詞", "接頭詞", "接尾詞"}
+# 品詞フィルタ（config.py から取得）
+KEEP_POS = config.KEEP_POS
+PUNCTUATION_POS = config.PUNCTUATION_POS
 
-# ストップワード：一般的すぎる単語・分詞偽影を除外
-STOPWORDS = {
-    "御座る", "分かる", "言う", "無い", "有る", "居る", "為る", "呉れる",
-    "思う", "出る", "来る", "行く", "見る", "良い", "悪い",
-    "下さる", "頂く", "致す",
-    "ます", "です", "た", "て", "で",
-    "成る", "置く", "付く", "持つ", "入る", "使う", "知る", "話す",
-    "仕舞う", "れる", "られる", "ある", "いる", "する", "なる",
-    "える", "やすい", "にくい", "方", "遣る", "凄い", "旨い", "レン",
-}
+# ストップワード（config.py から取得）
+STOPWORDS = config.STOPWORDS
 
 
 def tokenize_with_fugashi(text: str) -> str:
@@ -77,13 +51,13 @@ def tokenize_with_fugashi(text: str) -> str:
     tokens = []
     for word in tagger(text):
         pos = word.feature.pos1
-        if pos in PUNCTUATION_POS:
+        if pos in config.PUNCTUATION_POS:
             continue
-        if pos in KEEP_POS:
+        if pos in config.KEEP_POS:
             lemma = word.feature.lemma if word.feature.lemma else word.surface
             if "-" in lemma:
                 lemma = lemma.split("-")[0]
-            if lemma not in STOPWORDS:
+            if lemma not in config.STOPWORDS:
                 tokens.append(lemma)
     return " ".join(tokens)
 
@@ -201,7 +175,7 @@ def run_topic_modeling(
         nr_topics=None,
         verbose=True,
         language="japanese",
-        seed_topic_list=BERTOPIC_SEED_TOPICS,
+        seed_topic_list=config.BERTOPIC_SEED_TOPICS,
         representation_model=representation_model,
     )
 

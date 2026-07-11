@@ -4,7 +4,6 @@ cat0: 離婚、流産、不倫、詐欺、自殺などの負面・危険対話
 cat1: その他（一般的な育児相談・生活問題など）
 """
 import sys
-import json
 import warnings
 import torch
 import pandas as pd
@@ -21,43 +20,18 @@ from sentence_transformers import SentenceTransformer
 
 warnings.filterwarnings("ignore")
 
-SEED_TOPICS_PATH = Path(__file__).parent / "seed_topics.json"
-with open(SEED_TOPICS_PATH, "r", encoding="utf-8") as f:
-    SEED_CONFIG = json.load(f)
-
-# 負面キーワード
-NEGATIVE_KEYWORDS = SEED_CONFIG["negative_keywords"]
-
 # 埋め込みモデル
 LOCAL_MODEL_PATH = config.MODELS_DIR / "ruri-v3-310m"
 MODEL_NAME = str(LOCAL_MODEL_PATH) if LOCAL_MODEL_PATH.exists() else "cl-nagoya/ruri-v3-310m"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 RANDOM_SEED = config.TOPIC_RANDOM_SEED
 
-# パターンベース検出用のキーワード組み合わせ
-PATTERN_COMBOS = [
-    {"name": "離婚別離", "required": [["離婚", "別居", "親権", "離婚届", "調停", "弁護士", "離婚したい", "離婚する"]], "context": ["夫", "妻", "旦那", "主人", "パートナー", "彼氏", "彼女"]},
-    {"name": "浮気不倫", "required": [["浮気", "不倫", "愛人", "二股", "不貞", "浮気された", "不貞行為"]], "context": ["夫", "妻", "旦那", "主人", "彼", "パートナー", "彼氏", "彼女"]},
-    {"name": "夫以外の幸せ", "required": [["夫以外", "他の人", "別の男性", "別の人の"]], "context": ["幸せ", "恋", "気持ち", "好き", "愛"]},
-    {"name": "夫隠し", "required": [["夫に見つかったら怖い", "見つかったら怖い", "夫に内緒", "夫にバレると怖い", "隠してる", "隠してた"]], "context": []},
-    {"name": "外国人詐欺", "required": [["外国", "外国人", "海外の人", "フィリピン", "アメリカ", "イギリス"]], "context": ["信頼", "夫より", "優しい", "理解", "相談", "援助"]},
-    {"name": "退役軍人詐欺", "required": [["退役軍人", "軍人"]], "context": ["貸", "お金", "返す", "会いに来る", "送金"]},
-    {"name": "流産妊娠問題", "required": [["流産", "死産", "中絶", "妊娠中絶", "流産した", "流産の心配"]], "context": []},
-    {"name": "ロマンス詐欺", "required": [["Facebook", "facebook", "フェイスブック", "SNS", "LINE", "インスタ", "Instagram", "Twitter", "ツイッター", "マッチング", "matching"], ["退役軍人", "軍人"]], "context": ["海外", "外国", "貸", "送金", "お金", "投資", "返す", "詐欺", "騙された", "会いに来る"]},
-    {"name": "海外金銭", "required": [["海外", "外国"]], "context": ["貸", "送金", "お金", "投資", "返す", "資金", "融資", "知り合", "出会", "詐欺", "騙された"]},
-    {"name": "詐欺", "required": [["詐欺", "フィッシング", "登録するだけで", "月々数万", "掲載料", "ベビーモデル", "詐欺に遭った", "詐欺被害"]], "context": []},
-    {"name": "金銭トラブル", "required": [["融資", "資金を持ちかけ", "投資", "借りる", "貸す", "借金"]], "context": ["多額", "大金", "ほとんど", "消える", "怪しい", "詐欺", "騙", "不安"]},
-    {"name": "DV暴力", "required": [["DV", "暴力", "暴行", "傷害", "殴", "蹴", "脅", "叩", "暴言", "怒鳴", "ドメスティックバイオレンス", "警察沙汰"]], "context": ["夫", "妻", "旦那", "彼", "パートナー", "家族", "彼氏", "彼女"]},
-    {"name": "モラハラ", "required": [["モラハラ", "モラルハラスメント", "パワハラ", "精神的な虐待"]], "context": []},
-    {"name": "自殺自傷", "required": [["死にたい", "消えたい", "自殺", "死のう", "生きる意味", "いらない", "終わらせたい", "死ねない", "死なない", "死にきれ", "自殺したい", "命を絶ちたい"]], "context": []},
-]
-
 
 def check_pattern_combos(text: str) -> tuple[bool, str | None]:
     """テキスト内でパターンベースの組み合わせを検出"""
     if not isinstance(text, str) or not text.strip():
         return False, None
-    for pattern in PATTERN_COMBOS:
+    for pattern in config.PATTERN_COMBOS:
         required_match = any(any(kw in text for kw in req_group) for req_group in pattern["required"])
         if not required_match:
             continue
@@ -70,7 +44,7 @@ def check_pattern_combos(text: str) -> tuple[bool, str | None]:
 
 def generate_seed_labels(df: pd.DataFrame) -> dict[int, int]:
     """キーワードマッチングでシードラベルを生成"""
-    all_negative_keywords = set(NEGATIVE_KEYWORDS)
+    all_negative_keywords = set(config.NEGATIVE_KEYWORDS)
     seed_labels = {}
 
     for idx, row in df.iterrows():
@@ -172,8 +146,8 @@ def run_classification():
     print("\n[5] 全文書予測...")
     all_probs = clf.predict_proba(embeddings)
 
-    confidence_threshold = 0.85
-    short_threshold = 2
+    confidence_threshold = config.CLASSIFY_CONFIDENCE_THRESHOLD
+    short_threshold = config.CLASSIFY_SHORT_THRESHOLD
     categories = []
     confidences = []
 
