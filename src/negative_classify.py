@@ -282,34 +282,17 @@ def run_classification():
     print(f"  category 0 (种子): {n_cat0} 件")
     print(f"  category 1 (种子): {n_cat1} 件")
 
-    # 4. 训练分类器（尝试多种）
-    print("\n[4] 训练分类器...")
+    # 4. 训练分类器（SVM-RBF，泛化能力最好）
+    print("\n[4] 训练 SVM-RBF 分类器...")
     train_indices = list(seed_labels.keys())
     X_train = embeddings[train_indices]
     y_train = [seed_labels[i] for i in train_indices]
 
-    classifiers = {
-        "LogisticRegression": LogisticRegression(max_iter=1000, class_weight="balanced", random_state=RANDOM_SEED),
-        "SVM-RBF": SVC(kernel="rbf", probability=True, class_weight="balanced", random_state=RANDOM_SEED),
-        "SVM-Linear": SVC(kernel="linear", probability=True, class_weight="balanced", random_state=RANDOM_SEED),
-        "RandomForest": RandomForestClassifier(n_estimators=100, class_weight="balanced", random_state=RANDOM_SEED),
-        "GradientBoosting": GradientBoostingClassifier(n_estimators=100, random_state=RANDOM_SEED),
-    }
+    best_clf = SVC(kernel="rbf", probability=True, class_weight="balanced", random_state=RANDOM_SEED)
 
-    best_clf = None
-    best_f1 = 0
-    best_name = ""
+    cv_scores = cross_val_score(best_clf, X_train, y_train, cv=min(5, len(train_indices)), scoring="f1")
+    print(f"  交叉验证 F1: {cv_scores.mean():.3f} (±{cv_scores.std():.3f})")
 
-    for name, clf in classifiers.items():
-        cv_scores = cross_val_score(clf, X_train, y_train, cv=min(5, len(train_indices)), scoring="f1")
-        f1_mean = cv_scores.mean()
-        print(f"  {name}: F1={f1_mean:.3f} (±{cv_scores.std():.3f})")
-        if f1_mean > best_f1:
-            best_f1 = f1_mean
-            best_clf = clf
-            best_name = name
-
-    print(f"\n  最佳分类器: {best_name} (F1={best_f1:.3f})")
     best_clf.fit(X_train, y_train)
 
     # 保存模型和种子标签
