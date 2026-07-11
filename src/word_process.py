@@ -1,3 +1,9 @@
+"""
+単語頻度分析スクリプト
+2つのチャットボット（mochiko / pen_sensei）の会話データに対して、
+ユーザー入力とボット応答の単語統計を行う。
+名詞・動詞・emojiの出現頻度ランキングを出力する。
+"""
 import config
 import pandas as pd
 from fugashi import Tagger
@@ -5,15 +11,18 @@ import csv
 import emoji
 from collections import Counter
 
+# データ読み込み
 df_mochiko = pd.read_csv(config.DATA_DIR / 'data_mochiko.csv')
 df_pen_sensei = pd.read_csv(config.DATA_DIR / 'data_pen_sensei.csv')
 
+# 形態素解析器
 tagger = Tagger()
 punctuation_pos = {'補助記号', '記号'}
 particle_pos = {'助詞', '助動詞'}
 
 
 def get_word_counts(texts, exclude_particles=False):
+    """テキストリストに対して形態素解析を行い、単語の出現回数をカウント"""
     word_data = []
     for text in texts:
         if not isinstance(text, str) or not text.strip():
@@ -32,6 +41,7 @@ def get_word_counts(texts, exclude_particles=False):
 
 
 def save_word_counts(filename, word_counts):
+    """単語カウント結果をCSVに保存"""
     with open(config.DATA_DIR / 'word_counts' / filename, 'w', newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
         writer.writerow(['word', 'pos', 'count'])
@@ -40,6 +50,7 @@ def save_word_counts(filename, word_counts):
 
 
 def save_rankings_by_pos(name, word_counts):
+    """品詞別にランキングを生成してCSVに保存"""
     nouns = Counter({k: v for k, v in word_counts.items() if k[1] == '名詞'})
     save_word_counts(f'{name}_n.csv', nouns)
     verbs = Counter({k: v for k, v in word_counts.items() if k[1] == '動詞'})
@@ -49,6 +60,7 @@ def save_rankings_by_pos(name, word_counts):
 
 
 def process_chatbot(name, df):
+    """単一チャットボットのデータを処理し、input/outputの統計を保存"""
     texts_input = df['userInput'].fillna('')
     word_counts_input = get_word_counts(texts_input, exclude_particles=True)
     texts_output = df['replyText'].fillna('')
@@ -60,6 +72,7 @@ def process_chatbot(name, df):
 
 
 def process_all_inputs():
+    """data_with_id.csv から全ユーザー入力を読み込み、(userId, userInput) で重複除去後に統計"""
     df_all = pd.read_csv(config.DATA_DIR / 'data_with_id.csv')
     df_deduped = df_all.drop_duplicates(subset=['userId', 'userInput'])
     texts_input = df_deduped['userInput'].fillna('')

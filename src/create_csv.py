@@ -1,11 +1,16 @@
+"""
+CSV前処理スクリプト
+チャット履歴を会話単位に整形し、分析用CSVを生成する。
+"""
 import re
 from collections import deque
 import pandas as pd
 import config
 
+# データ読み込み
 df_chat = pd.read_csv(config.DATA_DIR / 'mochiko-line-bot-prod-20260318 (1).csv')
 df_point = pd.read_csv(config.DATA_DIR / 'real_research.csv')
-print(f"[Step 1] 原始数据: chat={len(df_chat)}行, point={len(df_point)}行")
+print(f"[Step 1] 生データ: chat={len(df_chat)}行, point={len(df_point)}行")
 
 orchestrator_queue = deque()
 session_buffer = {}

@@ -1,3 +1,7 @@
+"""
+単語頻度可視化スクリプト
+散布図、棒グラフ、ワードクラウド、Treemap を生成する。
+"""
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -6,22 +10,26 @@ import io
 import base64
 import config
 
+# 統一サイズ定義
 FIG_W, FIG_H = 1200, 700
 FIG_WIDE_W, FIG_WIDE_H = 1400, 700
 
 
 def export_fig(fig, base_path):
+    """plotly の fig を HTML + SVG の2形式で出力"""
     fig.write_html(str(base_path) + '.html')
     fig.write_image(str(base_path) + '.svg', width=FIG_WIDE_W, height=FIG_WIDE_H, scale=1)
 
 
 def get_category(row):
+    """単語がどのカテゴリに属するかを判定"""
     if pd.isna(row['rank_m']): return 'Pen Only'
     if pd.isna(row['rank_p']): return 'Mochiko Only'
     return 'Common'
 
 
 def build_scatter_plot(df_mochiko, df_pen_sensei, title_suffix, output_filename):
+    """2つのチャットボットの単語頻度データに対して散布図比較プロットを生成"""
     df_m = df_mochiko.copy()
     df_p = df_pen_sensei.copy()
     df_m['rank_m'] = df_m['count'].rank(ascending=False, method='first', pct=True)
@@ -119,6 +127,7 @@ def build_scatter_plot(df_mochiko, df_pen_sensei, title_suffix, output_filename)
 
 
 def build_word_cloud(csv_path, title, output_filename, top_n=80, min_count=1):
+    """CSVデータに対してワードクラウドを生成"""
     df = pd.read_csv(csv_path)
     df = df[df['count'] >= min_count].head(top_n)
     freq_dict = dict(zip(df['word'], df['count']))
@@ -173,6 +182,7 @@ img {{ max-width: 100%; height: auto; display: block; margin: 0 auto; }}
 
 
 def build_treemap(csv_path, title, output_filename, top_n=50, min_count=1):
+    """CSVデータに対してTreemap（単語頻度ツリーマップ）を生成"""
     df = pd.read_csv(csv_path)
     df = df[df['count'] >= min_count].head(top_n)
     df['label'] = df['word'] + '\n' + df['count'].astype(str)
@@ -201,6 +211,7 @@ def build_treemap(csv_path, title, output_filename, top_n=50, min_count=1):
 
 
 def build_bar_chart(csv_path, title_suffix, output_filename, top_n=30):
+    """単一データセットに対して水平棒グラフ（Top N 高頻度語）を生成"""
     df = pd.read_csv(csv_path)
     df_top = df.head(top_n).iloc[::-1]
 

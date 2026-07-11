@@ -1,3 +1,9 @@
+"""
+トピックモデリングモジュール
+BERTopic + KMeans による話題モデリング
+- 短文テキストフィルタ（tokenized < 2語 → -1）
+- 統計距離フィルタ（mean + 1.5 * std）
+"""
 import sys
 import json
 import warnings
@@ -19,10 +25,12 @@ from umap import UMAP
 
 warnings.filterwarnings("ignore")
 
+# シードトピック設定読み込み
 SEED_TOPICS_PATH = Path(__file__).parent / "seed_topics.json"
 with open(SEED_TOPICS_PATH, "r", encoding="utf-8") as f:
     SEED_CONFIG = json.load(f)
 
+# BERTopic用シードトピック（クラスタリング誘導用）
 BERTOPIC_SEED_TOPICS = [
     ["離婚", "別れたい", "別居", "親権", "離婚届"],
     ["浮気", "不倫", "愛人", "二股", "浮気相手"],
@@ -34,18 +42,23 @@ BERTOPIC_SEED_TOPICS = [
     ["眠れない", "食欲", "頭痛", "疲労", "産後"],
 ]
 
+# 埋め込みモデル（ローカル優先）
 LOCAL_MODEL_PATH = config.MODELS_DIR / "ruri-v3-310m"
 MODEL_NAME = str(LOCAL_MODEL_PATH) if LOCAL_MODEL_PATH.exists() else "cl-nagoya/ruri-v3-310m"
 RANDOM_SEED = config.TOPIC_RANDOM_SEED
 
+# デバイス選択
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"使用设备: {DEVICE}")
+print(f"使用デバイス: {DEVICE}")
 
+# fugashi タガーの初期化
 tagger = Tagger()
 
+# 品詞フィルタ：名詞・動詞・形容詞のみ
 KEEP_POS = {"名詞", "動詞", "形容詞"}
 PUNCTUATION_POS = {"補助記号", "記号", "助詞", "助動詞", "接続詞", "感動詞", "接頭詞", "接尾詞"}
 
+# ストップワード：一般的すぎる単語・分詞偽影を除外
 STOPWORDS = {
     "御座る", "分かる", "言う", "無い", "有る", "居る", "為る", "呉れる",
     "思う", "出る", "来る", "行く", "見る", "良い", "悪い",
@@ -58,6 +71,7 @@ STOPWORDS = {
 
 
 def tokenize_with_fugashi(text: str) -> str:
+    """fugashiで形態素解析し、名詞・動詞・形容詞の原形を返す"""
     if not isinstance(text, str) or not text.strip():
         return ""
     tokens = []
@@ -80,6 +94,7 @@ def verify_and_reassign(
     topic_model,
     z_threshold: float = 2.0,
 ) -> list[int]:
+    """統計距離に基づき異常文書をフィルタ（mean + z_threshold * std）"""
     from sklearn.metrics.pairwise import cosine_distances
 
     new_topics = list(topics)
@@ -116,29 +131,32 @@ def verify_and_reassign(
 
 
 def run_topic_modeling(
+
     texts: list[str],
     dataset_name: str,
     text_type: str,
     output_dir: Path,
     source_df: pd.DataFrame | None = None,
 ):
-    print(f"  话题建模: {dataset_name} / {text_type}")
-    print(f"  文本数: {len(texts)}")
+    """与えられたテキストリストに対してトピックモデリングを実行"""
+    print(f"  トピックモデリング: {dataset_name} / {text_type}")
+    print(f"  テキスト数: {len(texts)}")
 
     valid_texts = [t for t in texts if isinstance(t, str) and t.strip()]
     if len(valid_texts) < 3:
-        print(f"  有效文本仅有{len(valid_texts)}条，跳过处理")
+        print(f"  有効テキストが{len(valid_texts)}件のみ、スキップ")
         return
 
-    print(f"  有效文本数: {len(valid_texts)}")
+    print(f"  有効テキスト数: {len(valid_texts)}")
 
-    print("正在使用 fugashi 进行形态素解析与预处理...")
+    print("fugashi で形態素解析中...")
     tokenized_texts = [tokenize_with_fugashi(t) for t in valid_texts]
 
+    # 短文テキストの識別（分詞後2語未満はクラスタリング対象外）
     short_threshold = 2
     short_indices = [i for i, t in enumerate(tokenized_texts) if len(t.split()) < short_threshold]
     long_indices = [i for i in range(len(valid_texts)) if i not in short_indices]
-    print(f"  短文本: {len(short_indices)} 篇, 参与聚类: {len(long_indices)} 篇")
+    print(f"  短文: {len(short_indices)} 件, クラスタリング対象: {len(long_indices)} 件")
 
     long_texts = [valid_texts[i] for i in long_indices]
     long_tokenized = [tokenized_texts[i] for i in long_indices]
@@ -150,9 +168,9 @@ def run_topic_modeling(
         show_progress_bar=True,
         batch_size=config.TOPIC_EMBEDDING_BATCH_SIZE_CUDA if DEVICE == "cuda" else config.TOPIC_EMBEDDING_BATCH_SIZE_CPU,
     )
-    print(f"  嵌入维度: {embeddings.shape}")
+    print(f"  埋め込み次元: {embeddings.shape}")
 
-    print("  正在执行 BERTopic 话题建模...")
+    print("  BERTopic トピックモデリング実行中...")
 
     umap_model = UMAP(
         n_neighbors=config.TOPIC_UMAP_N_NEIGHBORS,
@@ -205,14 +223,15 @@ def run_topic_modeling(
         for i, topic_idx in enumerate(long_indices):
             probs[topic_idx] = probs_long[i]
 
-    print("正在保存结果...")
+    # 結果保存
+    print("結果保存中...")
     output_dir.mkdir(parents=True, exist_ok=True)
     prefix = f"{dataset_name}_{text_type}"
 
     topic_counts = Counter(topics)
     n_outliers = topic_counts.get(-1, 0)
     n_valid_topics = len([t for t in topic_counts.keys() if t != -1])
-    print(f"\n  话题数: {n_valid_topics}, 离群: {n_outliers}/{len(topics)} ({(len(topics)-n_outliers)/len(topics)*100:.1f}%)")
+    print(f"\n  トピック数: {n_valid_topics}, 外れ値: {n_outliers}/{len(topics)} ({(len(topics)-n_outliers)/len(topics)*100:.1f}%)")
 
     doc_topics = pd.DataFrame({
         "document_index": range(len(valid_texts)),
@@ -252,7 +271,8 @@ def run_topic_modeling(
     keywords_df.to_csv(keywords_path, index=False, encoding="utf-8-sig")
     print(f"  → {keywords_path}")
 
-    print(f"\n  话题一览:")
+    # トピック一覧
+    print(f"\n  トピック一覧:")
     for topic_id in sorted(topic_counts.keys()):
         if topic_id == -1:
             continue

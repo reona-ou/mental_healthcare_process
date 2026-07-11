@@ -1,7 +1,7 @@
 """
-二分类模块：半监督学习方式
-cat0: 离婚、流产、出轨、诈骗、自杀等负面或危险对话
-cat1: 其它（一般健康咨询和生活问题等）
+2カテゴリ分類モジュール（半教師学習方式）
+cat0: 離婚、流産、不倫、詐欺、自殺などの負面・危険対話
+cat1: その他（一般的な育児相談・生活問題など）
 """
 import sys
 import json
@@ -25,13 +25,16 @@ SEED_TOPICS_PATH = Path(__file__).parent / "seed_topics.json"
 with open(SEED_TOPICS_PATH, "r", encoding="utf-8") as f:
     SEED_CONFIG = json.load(f)
 
+# 負面キーワード
 NEGATIVE_KEYWORDS = SEED_CONFIG["negative_keywords"]
 
+# 埋め込みモデル
 LOCAL_MODEL_PATH = config.MODELS_DIR / "ruri-v3-310m"
 MODEL_NAME = str(LOCAL_MODEL_PATH) if LOCAL_MODEL_PATH.exists() else "cl-nagoya/ruri-v3-310m"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 RANDOM_SEED = config.TOPIC_RANDOM_SEED
 
+# パターンベース検出用のキーワード組み合わせ
 PATTERN_COMBOS = [
     {"name": "離婚別離", "required": [["離婚", "別居", "親権", "離婚届", "調停", "弁護士", "離婚したい", "離婚する"]], "context": ["夫", "妻", "旦那", "主人", "パートナー", "彼氏", "彼女"]},
     {"name": "浮気不倫", "required": [["浮気", "不倫", "愛人", "二股", "不貞", "浮気された", "不貞行為"]], "context": ["夫", "妻", "旦那", "主人", "彼", "パートナー", "彼氏", "彼女"]},
@@ -51,6 +54,7 @@ PATTERN_COMBOS = [
 
 
 def check_pattern_combos(text: str) -> tuple[bool, str | None]:
+    """テキスト内でパターンベースの組み合わせを検出"""
     if not isinstance(text, str) or not text.strip():
         return False, None
     for pattern in PATTERN_COMBOS:
@@ -65,6 +69,7 @@ def check_pattern_combos(text: str) -> tuple[bool, str | None]:
 
 
 def generate_seed_labels(df: pd.DataFrame) -> dict[int, int]:
+    """キーワードマッチングでシードラベルを生成"""
     all_negative_keywords = set(NEGATIVE_KEYWORDS)
     seed_labels = {}
 
@@ -121,9 +126,10 @@ def generate_seed_labels(df: pd.DataFrame) -> dict[int, int]:
 
 
 def run_classification():
-    print("二分类（半监督学习方式 - SVM-RBF）")
+    """2カテゴリ分類を実行（SVM-RBF 半教師学習）"""
+    print("2カテゴリ分類（半教師学習 - SVM-RBF）")
 
-    print("\n[1] 读取数据...")
+    print("\n[1] データ読み込み...")
     df = pd.read_csv(config.DATA_DIR / "data_with_id.csv")
     doc_topics = pd.read_csv(config.DATA_DIR / "topic_modeling" / "combined_userInput_doc_topics.csv")
     print(f"  data_with_id: {len(df)} 行, doc_topics: {len(doc_topics)} 行")
@@ -138,31 +144,32 @@ def run_classification():
         show_progress_bar=True,
         batch_size=config.TOPIC_EMBEDDING_BATCH_SIZE_CUDA if DEVICE == "cuda" else config.TOPIC_EMBEDDING_BATCH_SIZE_CPU,
     )
-    print(f"  嵌入维度: {embeddings.shape}")
+    print(f"  埋め込み次元: {embeddings.shape}")
 
-    print("\n[3] 生成种子标签...")
+    print("\n[3] シードラベル生成...")
     seed_labels = generate_seed_labels(df)
     n_cat0 = sum(1 for v in seed_labels.values() if v == 0)
     n_cat1 = sum(1 for v in seed_labels.values() if v == 1)
     print(f"  category 0: {n_cat0} 件, category 1: {n_cat1} 件")
 
-    print("\n[4] 训练 SVM-RBF 分类器...")
+    print("\n[4] SVM-RBF分類器訓練...")
     train_indices = list(seed_labels.keys())
     X_train = embeddings[train_indices]
     y_train = [seed_labels[i] for i in train_indices]
 
     clf = SVC(kernel="rbf", probability=True, class_weight="balanced", random_state=RANDOM_SEED)
     cv_scores = cross_val_score(clf, X_train, y_train, cv=min(5, len(train_indices)), scoring="f1")
-    print(f"  交叉验证 F1: {cv_scores.mean():.3f} (±{cv_scores.std():.3f})")
+    print(f"  交差検証 F1: {cv_scores.mean():.3f} (±{cv_scores.std():.3f})")
     clf.fit(X_train, y_train)
 
+    # モデル保存
     model_dir = config.MODELS_DIR / "negative_classifier"
     model_dir.mkdir(parents=True, exist_ok=True)
     joblib.dump(clf, model_dir / "classifier.joblib")
     joblib.dump(seed_labels, model_dir / "seed_labels.joblib")
-    print(f"  模型已保存: {model_dir / 'classifier.joblib'}")
+    print(f"  モデル保存: {model_dir / 'classifier.joblib'}")
 
-    print("\n[5] 预测所有文档...")
+    print("\n[5] 全文書予測...")
     all_probs = clf.predict_proba(embeddings)
 
     confidence_threshold = 0.85
@@ -198,23 +205,23 @@ def run_classification():
     df["category"] = categories
     df["confidence"] = confidences
 
-    print("\n[6] 结果统计...")
+    print("\n[6] 結果統計...")
     cat_counts = df["category"].value_counts()
     n_high_conf = sum(1 for c in confidences if c >= 0.85)
-    print(f"  category 0 (负面):   {cat_counts.get(0, 0)} 件")
-    print(f"  category 1 (非负面): {cat_counts.get(1, 0)} 件")
-    print(f"  高置信度 (>= 0.85):  {n_high_conf} 件")
+    print(f"  category 0 (負面):   {cat_counts.get(0, 0)} 件")
+    print(f"  category 1 (非負面): {cat_counts.get(1, 0)} 件")
+    print(f"  高信頼度 (>= 0.85):  {n_high_conf} 件")
 
-    print("\n[7] 保存结果...")
+    print("\n[7] 結果保存...")
     all_path = config.DATA_DIR / "2category_all.csv"
     df.to_csv(all_path, index=False, encoding="utf-8-sig")
     print(f"  → {all_path}  ({len(df)}件)")
 
-    print(f"\ncategory 0 示例:")
+    print(f"\ncategory 0 セッション例:")
     for _, row in df[df["category"] == 0].head(10).iterrows():
         print(f"  [Topic {row['topic_id']}] ({row['confidence']:.2f}) {str(row['userInput'])[:50]}...")
 
-    print(f"\ncategory 1 示例:")
+    print(f"\ncategory 1 セッション例:")
     for _, row in df[df["category"] == 1].head(10).iterrows():
         print(f"  [Topic {row['topic_id']}] ({row['confidence']:.2f}) {str(row['userInput'])[:50]}...")
 
