@@ -190,54 +190,62 @@ def tokenize_with_fugashi(text: str) -> str:
     return " ".join(tokens)
 
 
-# 后处理：将 -1 文档重新分配到匹配的 topic
-REASSIGN_KEYWORDS = SEED_CONFIG.get("reassign_keywords", {})
-
-
-def reassign_outliers(topics: list[int], tokenized_texts: list[str], valid_texts: list[str]) -> list[int]:
+# 后处理函数：基于统计距离过滤异常文档
+def verify_and_reassign(
+    topics: list[int],
+    embeddings: np.ndarray,
+    valid_texts: list[str],
+    topic_model,
+    z_threshold: float = 2.0,
+) -> list[int]:
     """
-    将 topic -1 中有明确关键词的文档重新分配到最匹配的 topic。
+    基于统计距离过滤异常文档。
+    对每个 topic，计算文档到中心点的距离。
+    如果距离超过 mean + z_threshold * std，标记为 -1。
     """
-    topic_set = sorted(set(t for t in topics if t != -1))
-    if not topic_set:
-        return topics
-
-    topic_keyword_map = {}
-    for category, keywords in REASSIGN_KEYWORDS.items():
-        topic_keyword_map[category] = set(keywords)
-
-    category_to_topic = {
-        "divorce": 0,
-        "affair": 1,
-        "fraud": 2,
-        "psychological": 3,
-        "miscarriage": 4,
-        "parenting": 5,
-        "health": 6,
-    }
+    from sklearn.metrics.pairwise import cosine_distances
 
     new_topics = list(topics)
-    reassign_count = 0
+    marked_outlier = 0
 
-    for i, (tid, tokenized, original) in enumerate(zip(topics, tokenized_texts, valid_texts)):
-        if tid != -1:
+    # 计算每个 topic 的中心点
+    topic_centroids = {}
+    for tid in set(topics):
+        if tid == -1:
+            continue
+        indices = [i for i, t in enumerate(topics) if t == tid]
+        if indices:
+            topic_centroids[tid] = np.mean(embeddings[indices], axis=0)
+
+    # 计算每个 topic 的距离统计
+    topic_stats = {}
+    for tid, centroid in topic_centroids.items():
+        indices = [i for i, t in enumerate(topics) if t == tid]
+        if len(indices) < 2:
+            continue
+        dists = cosine_distances(embeddings[indices], [centroid]).flatten()
+        topic_stats[tid] = {
+            "mean": np.mean(dists),
+            "std": np.std(dists),
+        }
+
+    for i, (tid, emb) in enumerate(zip(topics, embeddings)):
+        if tid == -1:
             continue
 
-        best_category = None
-        best_score = 0
-        for category, keywords in topic_keyword_map.items():
-            score = sum(1 for kw in keywords if kw in original)
-            if score > best_score:
-                best_score = score
-                best_category = category
+        if tid not in topic_stats:
+            continue
 
-        if best_category and best_score >= 3:
-            target_topic = category_to_topic.get(best_category)
-            if target_topic is not None and target_topic in topic_set:
-                new_topics[i] = target_topic
-                reassign_count += 1
+        dist = cosine_distances([emb], [topic_centroids[tid]])[0][0]
+        mean = topic_stats[tid]["mean"]
+        std = topic_stats[tid]["std"]
 
-    print(f"  后处理：重新分配 {reassign_count} 篇文档")
+        # 如果距离超过 mean + z_threshold * std，标记为 -1
+        if std > 0 and dist > mean + z_threshold * std:
+            new_topics[i] = -1
+            marked_outlier += 1
+
+    print(f"  验证：标记为 -1 {marked_outlier} 篇（距离 > mean + {z_threshold} * std）")
     return new_topics
 
 
@@ -305,9 +313,9 @@ def run_topic_modeling(
 
     representation_model = MaximalMarginalRelevance(diversity=0.5)
 
-    # 使用 KMeans 替代 HDBSCAN，避免过多 -1 outlier
-    n_clusters = min(7, len(valid_texts) // 10)  # 最多7个cluster，至少10篇/cluster
-    n_clusters = max(3, n_clusters)  # 至少3个cluster
+    # 使用 KMeans 聚类
+    n_clusters = min(7, len(long_texts) // 10)
+    n_clusters = max(3, n_clusters)
     km_model = KMeans(n_clusters=n_clusters, random_state=RANDOM_SEED, n_init=10)
 
     topic_model = BERTopic(
@@ -315,7 +323,7 @@ def run_topic_modeling(
         umap_model=umap_model,
         hdbscan_model=km_model,
         vectorizer_model=vectorizer,
-        nr_topics=None,  # KMeans 已确定 cluster 数
+        nr_topics=None,
         verbose=True,
         language="japanese",
         seed_topic_list=BERTOPIC_SEED_TOPICS,
@@ -327,8 +335,14 @@ def run_topic_modeling(
         embeddings=embeddings,
     )
 
-    # 后处理：重新分配 -1 文档
-    topics_long = reassign_outliers(topics_long, long_tokenized, long_texts)
+    # 后处理：基于 embedding 相似度验证并重新分配
+    topics_long = verify_and_reassign(
+        topics_long,
+        embeddings,
+        long_texts,
+        topic_model,
+        z_threshold=1.5,
+    )
 
     # 合并结果：短文本标记为 -1，长文本使用聚类结果
     topics = [-1] * len(valid_texts)

@@ -64,13 +64,8 @@ STOPWORDS = {
 | representation_model | MMR (diversity=0.5) | 使用 Maximal Marginal Relevance 优化话题关键词多样性 |
 
 ### Post-Processing (后处理)
-使用 `src/seed_topics.json` 中的 `reassign_keywords` 配置，将 Topic -1 中有3个以上明确关键词匹配的文档重新分配到正确话题。
-
-### Embedding Batch Size
-| Device | Batch Size | 説明 |
-|---|---|---|
-| CUDA | 64 | GPU使用時のバッチサイズ。大きいほど高速だがVRAMを消費 |
-| CPU | 16 | CPU使用時のバッチサイズ |
+1. 短文本过滤：tokenized 后少于 2 个词的文档不参与聚类，直接标记为 -1
+2. 统计距离过滤：对每个 topic，计算文档到中心点的距离。如果距离超过 mean + 1.5 * std，标记为 -1
 
 ### Results Summary
 | Metric | Value | 説明 |
@@ -79,19 +74,21 @@ STOPWORDS = {
 | Total Documents | 182 | 全セッション数 |
 | Valid Topics (excl. -1) | 7 | 有効な話題数 |
 | Short Texts (topic -1) | 26 (14.3%) | 分詞後に2語未満の短いテキスト（聚類に不適格） |
-| Topic Coverage | 85.7% | 話題に分類された文書の割合 |
+| Statistical Outliers (topic -1) | 9 (4.9%) | 統計距離が mean + 1.5*std を超える異常文書 |
+| Total Outliers (topic -1) | 35 (19.2%) | 短文本 + 統計距離異常 |
+| Topic Coverage | 80.8% | 話題に分類された文書の割合 |
 
 ### Topic Distribution
 | Topic | Count | Keywords | Description |
 |---|---|---|---|
-| -1 (短文本) | 26 | - | 短文本（<2词）/ 短いテキスト / Short Texts |
-| 0 | 30 | 地域, 保健, 心配, 育児, 相談 | 育児支援・地域 / Parenting Support & Community |
-| 1 | 25 | 赤ちゃん, 離婚, 家事, 育児, きつい | 育児・離婚 / Parenting & Divorce |
-| 2 | 24 | おっぱい, 育児, 寝る, ワンオペ | 産後・授乳 / Postpartum & Breastfeeding |
-| 3 | 22 | 流産, 妊娠, 自分, 辛い, 嬉しい | 流産・妊娠 / Miscarriage & Pregnancy |
-| 4 | 21 | 相談, 苦手, 連絡, しんどい | 人間関係・相談 / Interpersonal & Consultation |
-| 5 | 19 | 離婚, 浮気, 浮気相手, 考える | 離婚・浮気 / Divorce & Infidelity |
-| 6 | 15 | 寝る, 箇月, 安心, 授乳 | 産後睡眠 / Postpartum Sleep |
+| -1 (离群) | 35 | - | 短文本+异常 / 短いテキスト+異常 / Short Texts+Outliers |
+| 0 | 27 | 地域, 保健, 心配, 育児, 相談 | 育児支援・地域 / Parenting Support & Community |
+| 1 | 24 | 赤ちゃん, 離婚, 家事, 育児, きつい | 育児・離婚 / Parenting & Divorce |
+| 2 | 23 | おっぱい, 育児, 寝る, ワンオペ | 産後・授乳 / Postpartum & Breastfeeding |
+| 3 | 21 | 流産, 妊娠, 自分, 辛い, 嬉しい | 流産・妊娠 / Miscarriage & Pregnancy |
+| 4 | 20 | 相談, 苦手, 連絡, しんどい | 人間関係・相談 / Interpersonal & Consultation |
+| 5 | 18 | 離婚, 浮気, 浮気相手, 考える | 離婚・浮気 / Divorce & Infidelity |
+| 6 | 14 | 寝る, 箇月, 安心, 授乳 | 産後睡眠 / Postpartum Sleep |
 
 ---
 
