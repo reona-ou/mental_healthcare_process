@@ -1,49 +1,35 @@
-# 各スクリプトの処理フロー
+# 処理フロー
 
 ## 実行順序
 
 ```
-1. download_models.py  →  モデルダウンロード（初回のみ）
-2. create_csv.py       →  CSV前処理
-3. topic.py            →  トピックモデリング
-4. negative_classify.py →  2カテゴリ分類
-5. sentiment_analysis.py → 感情分析
-6. sentiment_difference.py → 感情差分
-7. sentiment_summary_charts.py → 感情サマリー
-8. word_process.py     →  単語頻度
-9. word_visualization.py → 可視化
-10. sentiment_category_diff.py → クラスタリング
+1. create_csv.py              → CSV前処理
+2. word_process.py            → 単語頻度
+3. word_visualization.py      → 単語頻度可視化
+4. topic.py                   → トピック分析
+5. negative_classify.py       → トピック2カテゴリ分類
+6. sentiment_analysis.py      → 感情分析
+7. sentiment_difference.py    → 感情差分
+8. sentiment_summary_charts.py → 感情可視化
+9. sentiment_category_diff.py → 感情クラスタリング
 ```
 
 ---
 
-## 1. download_models.py — モデルダウンロード
-
-```
-huggingface_hub で事前学習済みモデルを models/ にダウンロード
-├── neuralnaut/deberta-wrime-emotions  → 感情分析用
-└── cl-nagoya/ruri-v3-310m             → トピックモデリング用
-```
-
-**出力**: `models/` 配下にモデルファイル
-
----
-
-## 2. create_csv.py — CSV前処理
+## 1. CSV前処理 — create_csv.py
 
 ```
 入力: mochiko-line-bot-prod-*.csv + real_research.csv
 │
-├── Step 1: チャット履歴を読み込み
-├── Step 2: Orchestratorリクエストと返信をペアリング（FIFOキュー）
-├── Step 3: 無意味入力フィルタ（キーワード・パターン・曖昧表現）
-├── Step 4: 重複除去（userId + replyType + userInput + persona）
-├── Step 5: データ分離（with_id / cant_find_id / mochiko / pen_sensei）
-├── Step 6: ID照合表作成
-└── 出力: 7つのCSVファイル
+├── チャット履歴読み込み
+├── Orchestratorリクエストと返信をペアリング（FIFOキュー）
+├── 無意味入力フィルタ（キーワード・パターン・曖昧表現）
+├── 重複除去（userId + replyType + userInput + persona）
+├── データ分離（with_id / cant_find_id / mochiko / pen_sensei）
+└── ID照合表作成
 ```
 
-**出力**:
+**出力** (data/):
 - `data_with_id.csv` — 全データ（満足度スコア付き）
 - `data_mochiko.csv` — もちこデータ
 - `data_pen_sensei.csv` — ペン先生データ
@@ -54,126 +40,7 @@ huggingface_hub で事前学習済みモデルを models/ にダウンロード
 
 ---
 
-## 3. topic.py — トピックモデリング
-
-```
-入力: data_with_id.csv
-│
-├── fugashi で形態素解析（名詞・動詞・形容詞のみ）
-├── 短文テキストフィルタ（分詞後<2語 → -1）
-├── ruri-v3-310m で768次元埋め込み生成
-├── KMeans クラスタリング（7クラスタ）
-├── 統計距離フィルタ（mean + 1.5 * std → -1）
-└── 出力
-```
-
-**出力** (data/topic_modeling/):
-- `combined_userInput_doc_topics.csv` — 文書ごとのトピック割当
-- `combined_userInput_topic_info.csv` — トピック情報
-- `combined_userInput_topic_keywords.csv` — トピック別キーワード
-
-**パラメータ**:
-- 埋め込み: ruri-v3-310m (768次元)
-- UMAP: n_neighbors=15, n_components=2, min_dist=0.1
-- クラスタリング: KMeans (7クラスタ)
-- MMR: diversity=0.5
-
----
-
-## 4. negative_classify.py — 2カテゴリ分類
-
-```
-入力: data_with_id.csv + doc_topics.csv
-│
-├── ruri-v3-310m で埋め込み生成
-├── シードラベル生成（半教師学習）
-│   ├── キーワードマッチング → category 0（離婚・詐欺・DV等）
-│   ├── ポジティブキーワード → category 1（育児・授乳等）
-│   └── トピック情報 → 補助ラベル
-├── SVM-RBF 分類器訓練
-├── 全文書予測（信頼度 >= 0.85 で分類）
-├── 短文テキスト → category 1
-└── 出力
-```
-
-**出力**: `data/2category_all.csv`
-- category 0: 負面（離婚・浮気・流産・詐欺・DV・自殺）
-- category 1: 非負面（育児相談・日常ストレス等）
-
-**パラメータ**:
-- 分類器: SVM-RBF (class_weight=balanced)
-- 信頼度閾値: 0.85
-- 交差検証 F1: 0.891
-
----
-
-## 5. sentiment_analysis.py — 感情分析
-
-```
-入力: data_with_id.csv
-│
-├── DeBERTa (neuralnaut/deberta-wrime-emotions) で8感情分析
-│   ├── userInput → 8感情スコア
-│   └── replyText → 8感情スコア
-├── (userId, userInput) でグループ化 → 会話構造
-├── ユーザー別統計量計算
-└── 出力
-```
-
-**8感情**: joy, sadness, anticipation, surprise, anger, fear, disgust, trust
-
-**出力** (data/sentiment/):
-- `sentiment.csv` — 全行の感情スコア
-- `conversations.csv` — 会話単位サマリー
-- `sentiment_stats.csv` — ユーザー別統計
-- `charts_wrime/` — ユーザー別折れ線グラフ（HTML+SVG）
-
----
-
-## 6. sentiment_difference.py — 感情差分分析
-
-```
-入力: sentiment.csv
-│
-├── ユーザーごとの差分計算（8×8マトリクス）
-│   └── diff = input_感情 - reply_感情
-├── 統計量計算（max, min, mean, median, Q1, Q3）
-├── 全session統一差分（reply - input）
-├── 統計量CSV保存
-└── 可視化（6種統計の棒グラフ）
-```
-
-**出力** (data/sentiment/sentiment_diff/):
-- `{userId}_differences.csv` — ユーザー別差分
-- `{userId}_statistics.csv` — ユーザー別統計
-- `sentiment_all_diff.csv` — 全session統一差分
-- `sentiment_all_diff_statistics.csv` — 全session統計
-- `visualizations/` — 統計棒グラフ（HTML+SVG）
-
----
-
-## 7. sentiment_summary_charts.py — 感情サマリー
-
-```
-入力: sentiment.csv
-│
-├── userInput 分析
-│   ├── 主導感情分布（棒グラフ）
-│   ├── 感情レーダー（平均値）
-│   ├── 統計指標比較（mean/median/std/max/min）
-│   └── 感情スコア分布（箱ひげ図）
-├── reply 分析（同上）
-└── overall 分析（input + reply 混合、同上）
-```
-
-**出力** (data/sentiment/):
-- `input_analysis/` — userInput 分析
-- `reply_analysis/` — reply 分析
-- `overall_analysis/` — 全体分析
-
----
-
-## 8. word_process.py — 単語頻度分析
+## 2. 単語頻度 — word_process.py
 
 ```
 入力: data_mochiko.csv + data_pen_sensei.csv + data_with_id.csv
@@ -196,7 +63,7 @@ huggingface_hub で事前学習済みモデルを models/ にダウンロード
 
 ---
 
-## 9. word_visualization.py — 可視化
+## 3. 単語頻度可視化 — word_visualization.py
 
 ```
 入力: word_process.py の出力CSV
@@ -231,7 +98,126 @@ huggingface_hub で事前学習済みモデルを models/ にダウンロード
 
 ---
 
-## 10. sentiment_category_diff.py — クラスタリング
+## 4. トピック分析 — topic.py
+
+```
+入力: data_with_id.csv
+│
+├── fugashi で形態素解析（名詞・動詞・形容詞のみ）
+├── 短文テキストフィルタ（分詞後<2語 → -1）
+├── ruri-v3-310m で768次元埋め込み生成
+├── KMeans クラスタリング（7クラスタ）
+├── 統計距離フィルタ（mean + 1.5 * std → -1）
+└── 出力
+```
+
+**出力** (data/topic_modeling/):
+- `combined_userInput_doc_topics.csv` — 文書ごとのトピック割当
+- `combined_userInput_topic_info.csv` — トピック情報
+- `combined_userInput_topic_keywords.csv` — トピック別キーワード
+
+**パラメータ**:
+- 埋め込み: ruri-v3-310m (768次元)
+- UMAP: n_neighbors=15, n_components=2, min_dist=0.1
+- クラスタリング: KMeans (7クラスタ)
+- MMR: diversity=0.5
+
+---
+
+## 5. トピック2カテゴリ分類 — negative_classify.py
+
+```
+入力: data_with_id.csv + doc_topics.csv
+│
+├── ruri-v3-310m で埋め込み生成
+├── シードラベル生成（半教師学習）
+│   ├── キーワードマッチング → category 0（離婚・詐欺・DV等）
+│   ├── ポジティブキーワード → category 1（育児・授乳等）
+│   └── トピック情報 → 補助ラベル
+├── SVM-RBF 分類器訓練
+├── 全文書予測（信頼度 >= 0.85 で分類）
+├── 短文テキスト → category 1
+└── 出力
+```
+
+**出力**: `data/2category_all.csv`
+- category 0: 負面（離婚・浮気・流産・詐欺・DV・自殺）
+- category 1: 非負面（育児相談・日常ストレス等）
+
+**パラメータ**:
+- 分類器: SVM-RBF (class_weight=balanced)
+- 信頼度閾値: 0.85
+- 交差検証 F1: 0.891
+
+---
+
+## 6. 感情分析 — sentiment_analysis.py
+
+```
+入力: data_with_id.csv
+│
+├── DeBERTa (neuralnaut/deberta-wrime-emotions) で8感情分析
+│   ├── userInput → 8感情スコア
+│   └── replyText → 8感情スコア
+├── (userId, userInput) でグループ化 → 会話構造
+├── ユーザー別統計量計算
+└── 出力
+```
+
+**8感情**: joy, sadness, anticipation, surprise, anger, fear, disgust, trust
+
+**出力** (data/sentiment/):
+- `sentiment.csv` — 全行の感情スコア
+- `conversations.csv` — 会話単位サマリー
+- `sentiment_stats.csv` — ユーザー別統計
+- `charts_wrime/` — ユーザー別折れ線グラフ（HTML+SVG）
+
+---
+
+## 7. 感情差分 — sentiment_difference.py
+
+```
+入力: sentiment.csv
+│
+├── ユーザーごとの差分計算（8×8マトリクス）
+│   └── diff = input_感情 - reply_感情
+├── 統計量計算（max, min, mean, median, Q1, Q3）
+├── 全session統一差分（reply - input）
+├── 統計量CSV保存
+└── 可視化（6種統計の棒グラフ）
+```
+
+**出力** (data/sentiment/sentiment_diff/):
+- `{userId}_differences.csv` — ユーザー別差分
+- `{userId}_statistics.csv` — ユーザー別統計
+- `sentiment_all_diff.csv` — 全session統一差分
+- `sentiment_all_diff_statistics.csv` — 全session統計
+- `visualizations/` — 統計棒グラフ（HTML+SVG）
+
+---
+
+## 8. 感情可視化 — sentiment_summary_charts.py
+
+```
+入力: sentiment.csv
+│
+├── userInput 分析
+│   ├── 主導感情分布（棒グラフ）
+│   ├── 感情レーダー（平均値）
+│   ├── 統計指標比較（mean/median/std/max/min）
+│   └── 感情スコア分布（箱ひげ図）
+├── reply 分析（同上）
+└── overall 分析（input + reply 混合、同上）
+```
+
+**出力** (data/sentiment/):
+- `input_analysis/` — userInput 分析
+- `reply_analysis/` — reply 分析
+- `overall_analysis/` — 全体分析
+
+---
+
+## 9. 感情クラスタリング — sentiment_category_diff.py
 
 ```
 入力: sentiment_all_diff.csv + 2category_all.csv + doc_topics.csv + real_research.csv
