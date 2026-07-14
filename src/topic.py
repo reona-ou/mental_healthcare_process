@@ -3,6 +3,7 @@
 BERTopic + KMeans による話題モデリング
 - 短文テキストフィルタ（tokenized < 2語 → -1）
 - 統計距離フィルタ（mean + 1.5 * std）
+- ruri-v3 プレフィックス: 「トピック: 」を使用（分類・クラスタリング用）
 """
 import sys
 import warnings
@@ -136,9 +137,11 @@ def run_topic_modeling(
     long_tokenized = [tokenized_texts[i] for i in long_indices]
 
     print(f"正在生成 BERT 嵌入向量（{MODEL_NAME}）...")
+    print(f"  プレフィックス: 「{config.TOPIC_EMBEDDING_PREFIX}」")
     embedding_model = SentenceTransformer(MODEL_NAME, device=DEVICE)
+    prefixed_texts = [f"{config.TOPIC_EMBEDDING_PREFIX}{t}" for t in long_texts]
     embeddings = embedding_model.encode(
-        long_texts,
+        prefixed_texts,
         show_progress_bar=True,
         batch_size=config.TOPIC_EMBEDDING_BATCH_SIZE_CUDA if DEVICE == "cuda" else config.TOPIC_EMBEDDING_BATCH_SIZE_CPU,
     )

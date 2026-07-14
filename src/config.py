@@ -27,6 +27,7 @@ TOPIC_VECTORIZER_MIN_DF = 2      # 語彙の最小出現文書数
 TOPIC_EMBEDDING_MODEL = "cl-nagoya/ruri-v3-310m"
 TOPIC_EMBEDDING_BATCH_SIZE_CUDA = 64  # GPUバッチサイズ
 TOPIC_EMBEDDING_BATCH_SIZE_CPU = 16   # CPUバッチサイズ
+TOPIC_EMBEDDING_PREFIX = "トピック: "  # ruri-v3 プレフィックス（分類・クラスタリング用）
 
 # クラスタリングパラメータ（UMAP + HDBSCAN）
 CLUSTER_UMAP_N_COMPONENTS = 2

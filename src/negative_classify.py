@@ -2,6 +2,7 @@
 2カテゴリ分類モジュール（半教師学習方式）
 cat0: 離婚、流産、不倫、詐欺、自殺などの負面・危険対話
 cat1: その他（一般的な育児相談・生活問題など）
+- ruri-v3 プレフィックス: 「トピック: 」を使用（分類・クラスタリング用）
 """
 import sys
 import warnings
@@ -111,10 +112,12 @@ def run_classification():
     df["topic_id"] = doc_topics["topic_id"].values
 
     print(f"\n[2] 生成嵌入 ({MODEL_NAME})...")
+    print(f"  プレフィックス: 「{config.TOPIC_EMBEDDING_PREFIX}」")
     embedding_model = SentenceTransformer(MODEL_NAME, device=DEVICE)
     valid_texts = df["userInput"].fillna("").tolist()
+    prefixed_texts = [f"{config.TOPIC_EMBEDDING_PREFIX}{t}" for t in valid_texts]
     embeddings = embedding_model.encode(
-        valid_texts,
+        prefixed_texts,
         show_progress_bar=True,
         batch_size=config.TOPIC_EMBEDDING_BATCH_SIZE_CUDA if DEVICE == "cuda" else config.TOPIC_EMBEDDING_BATCH_SIZE_CPU,
     )
