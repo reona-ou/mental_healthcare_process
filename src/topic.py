@@ -189,10 +189,16 @@ def run_topic_modeling(
 
     topics_long = verify_and_reassign(topics_long, embeddings, topic_model, z_threshold=1.5)
 
+    # UMAP 2次元座標を計算
+    print("  UMAP 2次元座標を計算中...")
+    umap_coords = topic_model.umap_model.transform(embeddings)
+
     topics = [-1] * len(valid_texts)
     probs = None
+    umap_all = np.zeros((len(valid_texts), 2))
     for i, topic_idx in enumerate(long_indices):
         topics[topic_idx] = topics_long[i]
+        umap_all[topic_idx] = umap_coords[i]
     if probs_long is not None:
         if probs_long.ndim == 1:
             probs_long = probs_long.reshape(-1, 1)
@@ -215,6 +221,8 @@ def run_topic_modeling(
         "original_text": valid_texts,
         "tokenized_text": tokenized_texts,
         "topic_id": topics,
+        "umap_0": umap_all[:, 0],
+        "umap_1": umap_all[:, 1],
     })
     if probs is not None:
         doc_topics["topic_probability"] = probs.max(axis=1) if probs.ndim > 1 else probs
