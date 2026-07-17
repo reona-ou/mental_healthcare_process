@@ -135,9 +135,9 @@ HDBSCAN 密度聚类
 全数据聚类 (n=182) → 全局UMAP散布图 + 全局雷达图 + 全局评分箱线图
     ↓
 分类别处理 / Per-category processing
-├── Category 0 (负面, n≈59) → category0/ 子目录
+├── Category 0 (负面, n=62) → category0/ 子目录
 │   └── run_pipeline(): 独立 UMAP → HDBSCAN → 可视化
-└── Category 1 (非负面, n≈123) → category1/ 子目录
+└── Category 1 (非负面, n=120) → category1/ 子目录
     └── run_pipeline(): 独立 UMAP → HDBSCAN → 可视化
     ↓
 合并两个分类结果 → 覆盖写入 all_diff_clusters.csv
@@ -184,8 +184,13 @@ HDBSCAN 密度聚类
 ### 6. 情感差分抖动图 / Emotion Diff Jitter Plots
 
 - **文件名格式** / Filename: `{prefix}_diff_jitter.html` / `.svg`
-- **内容** / Content: 每个簇内各样本在各情感维度的散点分布，附带均值/最大值/最小值连线
-- 各クラスタ内各样本の感情差分分布。平均/最大/最小の折れ線付き
+- **内容** / Content: 每个簇内各样本在各情感维度的散点分布，附带：
+  - Mean 连线（实线+圆形 marker）
+  - SD 半透明阴影带（Mean ± 1SD，alpha=15%）
+  - Max 连线（虚线+圆形 marker）
+  - Min 连线（点线+圆形 marker）
+  - 红色虚线表示差分=0 基准线
+- 各クラスタ内各样本の感情差分分布。Mean実線/SD半透明帯/Max虚線/Min点線付き
 
 ### 7. 统计指标比较 / Statistical Comparison
 
@@ -247,8 +252,8 @@ HDBSCAN 密度聚类
 
 | 指标 / Indicator | 值 / Value | 说明 / Description |
 |---|---|---|
-| 全局簇数 / Global clusters | 2 | Cluster 0, Cluster 1 |
-| Silhouette Score | 0.7603 | 良好的分离度 / Good separation |
+| 全局簇数 / Global clusters | 2 | Cluster 0 (n=71), Cluster 1 (n=111) |
+| Silhouette Score | 0.7601 | 良好的分离度 / Good separation |
 | Calinski-Harabasz | 1133.03 | 良好的分离度 / Good separation |
 | Davies-Bouldin | 0.3160 | 良好的分离度 / Good separation |
 | 噪声比例 / Noise ratio | 见各分类结果 | label = -1 的样本 / Samples with label = -1 |

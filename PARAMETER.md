@@ -76,7 +76,7 @@ data_with_id.csv + doc_topics.csv → ruri-v3-310m 埋め込み
 |---|---|---|---|
 | 信頼度閾値 | 0.85 | `CLASSIFY_CONFIDENCE_THRESHOLD` | この閾値以上の予測のみ採用 |
 | 短文テキスト閾値 | 2 | `CLASSIFY_SHORT_THRESHOLD` | 分詞後この語数未満はcategory 1 |
-| 負面キーワード | 52語 | `NEGATIVE_KEYWORDS` | 離婚・詐欺・DV・自殺等 |
+| 負面キーワード | 57語 | `NEGATIVE_KEYWORDS` | 離婚・詐欺・DV・自殺等 |
 | パターン検出 | 14パターン | `PATTERN_COMBOS` | ロマンス詐欺・DV等の複合パターン |
 
 ### シードラベル生成
@@ -96,8 +96,8 @@ data_with_id.csv + doc_topics.csv → ruri-v3-310m 埋め込み
 ### 結果
 | 指標 | 値 | 説明 |
 |---|---|---|
-| category 0 (負面) | 59件 (32.4%) | 離婚・浮気・流産・詐欺・DV・自殺 |
-| category 1 (非負面) | 123件 (67.6%) | 育児相談・日常ストレス |
+| category 0 (負面) | 62件 (34.1%) | 離婚・浮気・流産・詐欺・DV・自殺 |
+| category 1 (非負面) | 120件 (65.9%) | 育児相談・日常ストレス |
 | 高信頼度 | 178件 (97.8%) | 信頼度 >= 0.85 |
 | 交差検証 F1 | 0.891 | 5-fold CV |
 
@@ -151,10 +151,18 @@ sentiment_all_diff.csv + 2category_all.csv + doc_topics.csv + real_research.csv
 ### 結果
 | 指標 | 値 | 説明 |
 |---|---|---|
-| クラスタ数 | 2 | Cluster 0, Cluster 1 |
-| Silhouette Score | 0.7603 | 良好な分離 |
+| クラスタ数 | 2 | Cluster 0 (n=71), Cluster 1 (n=111) |
+| Silhouette Score | 0.7601 | 良好な分離 |
 | Calinski-Harabasz | 1133.03 | 良好な分離 |
 | Davies-Bouldin | 0.3160 | 良好な分離 |
+
+### ジッタープロットSD可視化
+ジッタープロットでは以下の統計量を表示：
+- **Mean**: 実線 + 円形マーカー
+- **SD**: 半透明シミュレーション（Mean ± 1SD, alpha=15%）
+- **Max**: 虚線 + 円形マーカー
+- **Min**: 点線 + 円形マーカー
+- **基準線**: 差分=0 の赤一点線
 
 ---
 
@@ -199,7 +207,7 @@ KMEANS_K_RANGE = range(2, 11)
 # 形態素解析
 KEEP_POS = {"名詞", "動詞", "形容詞"}
 PUNCTUATION_POS = {"補助記号", "記号", "助詞", "助動詞", "接続詞", "感動詞", "接頭詞", "接尾詞"}
-STOPWORDS = {...}  # 一般的すぎる単語・分詞偽影
+STOPWORDS = {...}  # 46語、一般的すぎる単語・分詞偽影
 
 # トピックモデリング シード
 TOPIC_SEED = [...]  # 8カテゴリ

@@ -297,27 +297,35 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
             maxs.append(np.max(diffs))
             sds.append(np.std(diffs))
         x_pos = list(range(len(emotion_categories)))
-        # Mean line with SD error bars
+        # SD shaded band (mean ± 1SD)
+        upper = [m + s for m, s in zip(means, sds)]
+        lower = [m - s for m, s in zip(means, sds)]
+        fig_jitter.add_trace(go.Scatter(
+            x=x_pos + x_pos[::-1], y=upper + lower[::-1],
+            fill='toself', fillcolor=f'rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.15)',
+            line=dict(width=0), mode='lines',
+            name=f'C{cl} Mean±SD', legendgroup=f'cl{cl}', showlegend=True
+        ), row=1, col=ci + 1)
+        # Mean line
         fig_jitter.add_trace(go.Scatter(
             x=x_pos, y=means, mode='lines+markers',
-            error_y=dict(type='data', array=sds, visible=True, color=color, thickness=1.5, width=4),
-            marker=dict(size=7, color=color, symbol='diamond'),
-            line=dict(color=color, width=2.5),
-            name=f'C{cl} Mean ± SD', legendgroup=f'cl{cl}', showlegend=True
-        ), row=1, col=ci + 1)
-        # Min line
-        fig_jitter.add_trace(go.Scatter(
-            x=x_pos, y=mins, mode='lines+markers',
-            marker=dict(size=5, color=color, symbol='triangle-down'),
-            line=dict(color=color, width=1.5, dash='dot'),
-            name=f'C{cl} Min', legendgroup=f'cl{cl}', showlegend=False
+            marker=dict(size=6, color=color),
+            line=dict(color=color, width=2),
+            name=f'C{cl} Mean', legendgroup=f'cl{cl}', showlegend=False
         ), row=1, col=ci + 1)
         # Max line
         fig_jitter.add_trace(go.Scatter(
             x=x_pos, y=maxs, mode='lines+markers',
-            marker=dict(size=5, color=color, symbol='triangle-up'),
+            marker=dict(size=5, color=color),
             line=dict(color=color, width=1.5, dash='dash'),
             name=f'C{cl} Max', legendgroup=f'cl{cl}', showlegend=False
+        ), row=1, col=ci + 1)
+        # Min line
+        fig_jitter.add_trace(go.Scatter(
+            x=x_pos, y=mins, mode='lines+markers',
+            marker=dict(size=5, color=color),
+            line=dict(color=color, width=1.5, dash='dot'),
+            name=f'C{cl} Min', legendgroup=f'cl{cl}', showlegend=False
         ), row=1, col=ci + 1)
     jitter_bound = np.ceil(max(abs(np.min(all_diffs)), abs(np.max(all_diffs))) * 10) / 10
     fig_jitter.update_xaxes(tickvals=list(range(len(emotion_categories))), ticktext=emotion_labels, tickangle=-45)
@@ -549,27 +557,35 @@ for ci, cl in enumerate(valid_clusters_all):
         maxs.append(np.max(diffs))
         sds.append(np.std(diffs))
     x_pos = list(range(len(emotion_categories)))
-    # Mean line with SD error bars
+    # SD shaded band (mean ± 1SD)
+    upper = [m + s for m, s in zip(means, sds)]
+    lower = [m - s for m, s in zip(means, sds)]
+    fig_jitter_all.add_trace(go.Scatter(
+        x=x_pos + x_pos[::-1], y=upper + lower[::-1],
+        fill='toself', fillcolor=f'rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.15)',
+        line=dict(width=0), mode='lines',
+        name=f'C{cl} Mean±SD', legendgroup=f'cl{cl}', showlegend=True
+    ), row=1, col=ci + 1)
+    # Mean line
     fig_jitter_all.add_trace(go.Scatter(
         x=x_pos, y=means, mode='lines+markers',
-        error_y=dict(type='data', array=sds, visible=True, color=color, thickness=1.5, width=4),
-        marker=dict(size=7, color=color, symbol='diamond'),
-        line=dict(color=color, width=2.5),
-        name=f'C{cl} Mean ± SD', legendgroup=f'cl{cl}', showlegend=True
-    ), row=1, col=ci + 1)
-    # Min line
-    fig_jitter_all.add_trace(go.Scatter(
-        x=x_pos, y=mins, mode='lines+markers',
-        marker=dict(size=5, color=color, symbol='triangle-down'),
-        line=dict(color=color, width=1.5, dash='dot'),
-        name=f'C{cl} Min', legendgroup=f'cl{cl}', showlegend=False
+        marker=dict(size=6, color=color),
+        line=dict(color=color, width=2),
+        name=f'C{cl} Mean', legendgroup=f'cl{cl}', showlegend=False
     ), row=1, col=ci + 1)
     # Max line
     fig_jitter_all.add_trace(go.Scatter(
         x=x_pos, y=maxs, mode='lines+markers',
-        marker=dict(size=5, color=color, symbol='triangle-up'),
+        marker=dict(size=5, color=color),
         line=dict(color=color, width=1.5, dash='dash'),
         name=f'C{cl} Max', legendgroup=f'cl{cl}', showlegend=False
+    ), row=1, col=ci + 1)
+    # Min line
+    fig_jitter_all.add_trace(go.Scatter(
+        x=x_pos, y=mins, mode='lines+markers',
+        marker=dict(size=5, color=color),
+        line=dict(color=color, width=1.5, dash='dot'),
+        name=f'C{cl} Min', legendgroup=f'cl{cl}', showlegend=False
     ), row=1, col=ci + 1)
 jitter_bound_all = np.ceil(max(abs(np.min(all_diffs_all)), abs(np.max(all_diffs_all))) * 10) / 10
 fig_jitter_all.update_xaxes(tickvals=list(range(len(emotion_categories))), ticktext=emotion_labels, tickangle=-45)
