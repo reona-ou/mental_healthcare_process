@@ -17,10 +17,10 @@ session_buffer = {}
 processed_rows = []
 session_count = 1
 
-weights = {'kyukansei': 0.1, 'igakuseikakusei': 0.25, 'anzensei': 0.35, 'yuugaisei': 0.2, 'aiirai': 0.05, 'shikafannshi': 0.05}
-negative_cols = ['igakuseikakusei', 'anzensei', 'yuugaisei', 'aiirai', 'shikafannshi']
+weights = {'kyokansei': 0.1, 'igakuseikakusei': 0.25, 'anzensei': 0.35, 'yuugaisei': 0.2, 'aiirai': 0.05, 'shikafanshi': 0.05}
+negative_cols = ['igakuseikakusei', 'anzensei', 'yuugaisei', 'aiirai', 'shikafanshi']
 risk_score = df_point[negative_cols].mul([weights[col] for col in negative_cols]).sum(axis=1)
-bonus_score = df_point['kyukansei'] * weights['kyukansei']
+bonus_score = df_point['kyokansei'] * weights['kyokansei']
 df_point['satisfaction'] = (100 - (risk_score * 10) + (bonus_score * 10))
 point_result_dict = dict(zip(df_point['userId'], df_point['satisfaction']))
 
@@ -124,10 +124,10 @@ df_clean['replyText'] = df_clean['replyText'].str.replace('\\n', ' ').str.replac
 
 df_with_id = df_clean[df_clean['point'].notna()].copy()
 df_cant_find_id = df_clean[df_clean['point'].isna()].copy()
-df_mochiko = df_with_id[df_with_id['persona'] == 'mochiko'].copy()
-df_pen_sensei = df_with_id[df_with_id['persona'] == 'pen_sensei'].copy()
+df_chatbot_mo = df_with_id[df_with_id['persona'] == 'mochiko'].copy()
+df_chatbot_p = df_with_id[df_with_id['persona'] == 'pen_sensei'].copy()
 print(f"[Step 5] 分组: with_id={len(df_with_id)}行, cant_find_id={len(df_cant_find_id)}行")
-print(f"[Step 6] 人格分离: mochiko={len(df_mochiko)}行, pen_sensei={len(df_pen_sensei)}行")
+print(f"[Step 6] 人格分离: chatbot_mo={len(df_chatbot_mo)}行, chatbot_p={len(df_chatbot_p)}行")
 
 ids_chat = pd.DataFrame(df_chat['userId'].unique(), columns=['chat_userId'])
 ids_point = pd.DataFrame(df_point['userId'].unique(), columns=['point_userId'])
@@ -138,7 +138,7 @@ df_final.to_csv(config.DATA_DIR / 'data.csv', index=False, encoding='utf-8-sig')
 df_clean.to_csv(config.DATA_DIR / 'cleaned_data.csv', index=False, encoding='utf-8-sig')
 df_with_id.to_csv(config.DATA_DIR / 'data_with_id.csv', index=False, encoding='utf-8-sig')
 df_cant_find_id.to_csv(config.DATA_DIR / 'data_cant_find_id.csv', index=False, encoding='utf-8-sig')
-df_mochiko.to_csv(config.DATA_DIR / 'data_mochiko.csv', index=False, encoding='utf-8-sig')
-df_pen_sensei.to_csv(config.DATA_DIR / 'data_pen_sensei.csv', index=False, encoding='utf-8-sig')
+df_chatbot_mo.to_csv(config.DATA_DIR / 'data_chatbot_mo.csv', index=False, encoding='utf-8-sig')
+df_chatbot_p.to_csv(config.DATA_DIR / 'data_chatbot_p.csv', index=False, encoding='utf-8-sig')
 
 print(f"[Done] 共导出7个CSV文件")

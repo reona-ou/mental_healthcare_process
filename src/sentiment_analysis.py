@@ -162,6 +162,9 @@ def create_charts(conv_df, output_dirname='charts_wrime'):
         x_positions = list(range(1, n + 1))
         persona_list = user_conv['reply_persona'].tolist()
 
+        # ペルソナ名をチャットボット名にマッピング
+        persona_display_map = {'mochiko': 'chatbot_mo', 'muchiko': 'chatbot_mu', 'pen_sensei': 'chatbot_p'}
+
         # 2行1列のサブプロット（上: Reply, 下: Input）
         fig = make_subplots(rows=2, cols=1, subplot_titles=('<br>Reply', '<br>User Input:'), vertical_spacing=0.12, row_heights=[0.5, 0.5])
 
@@ -174,7 +177,7 @@ def create_charts(conv_df, output_dirname='charts_wrime'):
                 name=EMOTION_LABELS[emotion], line=dict(color=EMOTION_COLORS[emotion], width=2),
                 marker=dict(size=10, symbol=symbols, color=EMOTION_COLORS[emotion], line=dict(width=1, color='white')),
                 legendgroup=f'reply_{emotion}', showlegend=True,
-                hovertemplate=[f'{persona_list[i]} | {EMOTION_LABELS[emotion]}: %{{y:.4f}}<extra></extra>' for i in range(len(reply_scores))]
+                hovertemplate=[f'{persona_display_map.get(persona_list[i], persona_list[i])} | {EMOTION_LABELS[emotion]}: %{{y:.4f}}<extra></extra>' for i in range(len(reply_scores))]
             ), row=1, col=1)
 
         # Input 8感情の折れ線
@@ -199,7 +202,7 @@ def create_charts(conv_df, output_dirname='charts_wrime'):
         fig.update_layout(title=dict(text=f'User {uid}<br>', x=0.5, font=dict(size=15)), height=1000, width=max(1200, n * 100 + 300), template='plotly_white', legend=dict(orientation='h', yanchor='top', y=-0.12, xanchor='center', x=0.5, font=dict(size=10)), margin=dict(l=80, r=80, t=150, b=200), annotations=annotations)
 
         # x軸にペルソナ名を表示
-        reply_ticktext = [f"{j+1}<br><span style='font-size:8px;color:#666'>{user_conv.iloc[j].get('reply_persona', '')}</span>" if user_conv.iloc[j].get('reply_persona', '') else str(j+1) for j in range(n)]
+        reply_ticktext = [f"{j+1}<br><span style='font-size:8px;color:#666'>{persona_display_map.get(user_conv.iloc[j].get('reply_persona', ''), user_conv.iloc[j].get('reply_persona', ''))}</span>" if user_conv.iloc[j].get('reply_persona', '') else str(j+1) for j in range(n)]
         fig.update_xaxes(title_text='やり取り番号', row=1, col=1, tickvals=x_positions, ticktext=reply_ticktext, range=[0.3, n + 0.7])
         fig.update_yaxes(title_text='感情スコア', row=1, col=1, range=y_range, showgrid=True, gridcolor='#f0f0f0')
         fig.update_xaxes(title_text='やり取り番号', row=2, col=1, tickvals=x_positions, range=[0.3, n + 0.7])

@@ -64,8 +64,8 @@ cluster_colors = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A', '#19D3F
 topic_colors = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabed4', '#469990', '#dcbeff', '#9A6324', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9']
 
 # ユーザー評点の列と日本語ラベル
-RATING_COLS = ['kyukansei', 'igakuseikakusei', 'anzensei', 'yuugaisei', 'aiirai', 'shikafannshi']
-RATING_LABELS = {'kyukansei': '共感性', 'igakuseikakusei': '医学正確性', 'anzensei': '安全性', 'yuugaisei': '有害性', 'aiirai': 'AI依存', 'shikafannshi': 'シカファンシー'}
+RATING_COLS = ['kyokansei', 'igakuseikakusei', 'anzensei', 'yuugaisei', 'aiirai', 'shikafanshi']
+RATING_LABELS = {'kyokansei': '共感性', 'igakuseikakusei': '医学正確性', 'anzensei': '安全性', 'yuugaisei': '有害性', 'aiirai': 'AI依存', 'shikafanshi': 'シカファンシー'}
 
 # 図表サイズ設定（ピクセル）
 FIG_W, FIG_H = 1200, 700
@@ -285,17 +285,40 @@ def run_pipeline(df_cat, cat_label, umap_dim, nn, md, mcs, ms, output_dir):
     for ci, cl in enumerate(valid_clusters):
         subset = df_valid[df_valid['cluster'] == cl]
         color = cluster_colors[int(cl) % len(cluster_colors)]
-        means, mins, maxs = [], [], []
+        means, mins, maxs, sds = [], [], [], []
         for ei, emo in enumerate(emotion_categories):
             diffs = subset[f'diff_{emo}'].values
             all_diffs.extend(diffs)
             jitter_x = np.full(len(diffs), ei) + np.random.uniform(-0.15, 0.15, len(diffs))
             fig_jitter.add_trace(go.Scatter(x=jitter_x, y=diffs, mode='markers', marker=dict(size=4, color=color, opacity=0.4), name=f'Cluster {cl}' if ei == 0 else None, legendgroup=f'cl{cl}', showlegend=(ei == 0), hovertext=[f'{emo}: {d:.3f}' for d in diffs], hoverinfo='text'), row=1, col=ci + 1)
-            means.append(np.mean(diffs))
+            m = np.mean(diffs)
+            means.append(m)
             mins.append(np.min(diffs))
             maxs.append(np.max(diffs))
-        for stat_vals, dash, lbl, show_leg in [(means, 'solid', 'Mean', True), (mins, 'dot', 'Min', False), (maxs, 'dash', 'Max', False)]:
-            fig_jitter.add_trace(go.Scatter(x=list(range(len(emotion_categories))), y=stat_vals, mode='lines+markers', marker=dict(size=5), line=dict(color=color, width=2, dash=dash), name=f'C{cl} {lbl}', legendgroup=f'cl{cl}', showlegend=show_leg), row=1, col=ci + 1)
+            sds.append(np.std(diffs))
+        x_pos = list(range(len(emotion_categories)))
+        # Mean line with SD error bars
+        fig_jitter.add_trace(go.Scatter(
+            x=x_pos, y=means, mode='lines+markers',
+            error_y=dict(type='data', array=sds, visible=True, color=color, thickness=1.5, width=4),
+            marker=dict(size=7, color=color, symbol='diamond'),
+            line=dict(color=color, width=2.5),
+            name=f'C{cl} Mean ± SD', legendgroup=f'cl{cl}', showlegend=True
+        ), row=1, col=ci + 1)
+        # Min line
+        fig_jitter.add_trace(go.Scatter(
+            x=x_pos, y=mins, mode='lines+markers',
+            marker=dict(size=5, color=color, symbol='triangle-down'),
+            line=dict(color=color, width=1.5, dash='dot'),
+            name=f'C{cl} Min', legendgroup=f'cl{cl}', showlegend=False
+        ), row=1, col=ci + 1)
+        # Max line
+        fig_jitter.add_trace(go.Scatter(
+            x=x_pos, y=maxs, mode='lines+markers',
+            marker=dict(size=5, color=color, symbol='triangle-up'),
+            line=dict(color=color, width=1.5, dash='dash'),
+            name=f'C{cl} Max', legendgroup=f'cl{cl}', showlegend=False
+        ), row=1, col=ci + 1)
     jitter_bound = np.ceil(max(abs(np.min(all_diffs)), abs(np.max(all_diffs))) * 10) / 10
     fig_jitter.update_xaxes(tickvals=list(range(len(emotion_categories))), ticktext=emotion_labels, tickangle=-45)
     for ci in range(n_cl_rt):
@@ -514,17 +537,40 @@ all_diffs_all = []
 for ci, cl in enumerate(valid_clusters_all):
     subset = df_valid_all[df_valid_all['cluster'] == cl]
     color = cluster_colors[int(cl) % len(cluster_colors)]
-    means, mins, maxs = [], [], []
+    means, mins, maxs, sds = [], [], [], []
     for ei, emo in enumerate(emotion_categories):
         diffs = subset[f'diff_{emo}'].values
         all_diffs_all.extend(diffs)
         jitter_x = np.full(len(diffs), ei) + np.random.uniform(-0.15, 0.15, len(diffs))
         fig_jitter_all.add_trace(go.Scatter(x=jitter_x, y=diffs, mode='markers', marker=dict(size=4, color=color, opacity=0.4), name=f'Cluster {cl}' if ei == 0 else None, legendgroup=f'cl{cl}', showlegend=(ei == 0), hovertext=[f'{emo}: {d:.3f}' for d in diffs], hoverinfo='text'), row=1, col=ci + 1)
-        means.append(np.mean(diffs))
+        m = np.mean(diffs)
+        means.append(m)
         mins.append(np.min(diffs))
         maxs.append(np.max(diffs))
-    for stat_vals, dash, lbl, show_leg in [(means, 'solid', 'Mean', True), (mins, 'dot', 'Min', False), (maxs, 'dash', 'Max', False)]:
-        fig_jitter_all.add_trace(go.Scatter(x=list(range(len(emotion_categories))), y=stat_vals, mode='lines+markers', marker=dict(size=5), line=dict(color=color, width=2, dash=dash), name=f'C{cl} {lbl}', legendgroup=f'cl{cl}', showlegend=show_leg), row=1, col=ci + 1)
+        sds.append(np.std(diffs))
+    x_pos = list(range(len(emotion_categories)))
+    # Mean line with SD error bars
+    fig_jitter_all.add_trace(go.Scatter(
+        x=x_pos, y=means, mode='lines+markers',
+        error_y=dict(type='data', array=sds, visible=True, color=color, thickness=1.5, width=4),
+        marker=dict(size=7, color=color, symbol='diamond'),
+        line=dict(color=color, width=2.5),
+        name=f'C{cl} Mean ± SD', legendgroup=f'cl{cl}', showlegend=True
+    ), row=1, col=ci + 1)
+    # Min line
+    fig_jitter_all.add_trace(go.Scatter(
+        x=x_pos, y=mins, mode='lines+markers',
+        marker=dict(size=5, color=color, symbol='triangle-down'),
+        line=dict(color=color, width=1.5, dash='dot'),
+        name=f'C{cl} Min', legendgroup=f'cl{cl}', showlegend=False
+    ), row=1, col=ci + 1)
+    # Max line
+    fig_jitter_all.add_trace(go.Scatter(
+        x=x_pos, y=maxs, mode='lines+markers',
+        marker=dict(size=5, color=color, symbol='triangle-up'),
+        line=dict(color=color, width=1.5, dash='dash'),
+        name=f'C{cl} Max', legendgroup=f'cl{cl}', showlegend=False
+    ), row=1, col=ci + 1)
 jitter_bound_all = np.ceil(max(abs(np.min(all_diffs_all)), abs(np.max(all_diffs_all))) * 10) / 10
 fig_jitter_all.update_xaxes(tickvals=list(range(len(emotion_categories))), ticktext=emotion_labels, tickangle=-45)
 for ci in range(n_cl_all):

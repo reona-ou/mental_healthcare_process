@@ -2,6 +2,7 @@
 単語頻度可視化スクリプト
 散布図、棒グラフ、ワードクラウド、Treemap を生成する。
 """
+import os
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -17,6 +18,7 @@ FIG_WIDE_W, FIG_WIDE_H = 1400, 700
 
 def export_fig(fig, base_path):
     """plotly の fig を HTML + SVG の2形式で出力"""
+    os.makedirs(os.path.dirname(base_path), exist_ok=True)
     fig.write_html(str(base_path) + '.html')
     fig.write_image(str(base_path) + '.svg', width=FIG_WIDE_W, height=FIG_WIDE_H, scale=1)
 
@@ -28,10 +30,10 @@ def get_category(row):
     return 'Common'
 
 
-def build_scatter_plot(df_mochiko, df_pen_sensei, title_suffix, output_filename):
+def build_scatter_plot(df_chatbot_mo, df_chatbot_p, title_suffix, output_filename):
     """2つのチャットボットの単語頻度データに対して散布図比較プロットを生成"""
-    df_m = df_mochiko.copy()
-    df_p = df_pen_sensei.copy()
+    df_m = df_chatbot_mo.copy()
+    df_p = df_chatbot_p.copy()
     df_m['rank_m'] = df_m['count'].rank(ascending=False, method='first', pct=True)
     df_p['rank_p'] = df_p['count'].rank(ascending=False, method='first', pct=True)
 
@@ -54,8 +56,8 @@ def build_scatter_plot(df_mochiko, df_pen_sensei, title_suffix, output_filename)
 
     top10_m = df_m.sort_values('count', ascending=False).head(10)['word'].tolist()
     top10_p = df_p.sort_values('count', ascending=False).head(10)['word'].tolist()
-    text_top10_m = "<b>Mochiko</b><br>" + "<br>".join([f"{i+1}. {w}" for i, w in enumerate(top10_m)])
-    text_top10_p = "<b>Pen Sensei</b><br>" + "<br>".join([f"{i+1}. {w}" for i, w in enumerate(top10_p)])
+    text_top10_m = "<b>Chatbot MO</b><br>" + "<br>".join([f"{i+1}. {w}" for i, w in enumerate(top10_m)])
+    text_top10_p = "<b>Chatbot P</b><br>" + "<br>".join([f"{i+1}. {w}" for i, w in enumerate(top10_p)])
 
     fig = go.Figure()
     pen_only = df_merged[df_merged['category'] == 'Pen Only']
@@ -92,7 +94,7 @@ def build_scatter_plot(df_mochiko, df_pen_sensei, title_suffix, output_filename)
                 ),
                 hovertemplate=(
                     "<b>%{text}</b><br>Type: " + cat + "<br>"
-                    "Mochiko Count: %{customdata[0]}<br>Pen Sensei Count: %{customdata[1]}<extra></extra>"
+                    "Chatbot MO Count: %{customdata[0]}<br>Chatbot P Count: %{customdata[1]}<extra></extra>"
                 ),
             )
         )
@@ -113,8 +115,8 @@ def build_scatter_plot(df_mochiko, df_pen_sensei, title_suffix, output_filename)
             dict(x=1.02, y=0.48, xref="paper", yref="paper", text=text_top10_p, showarrow=False, align="left", font=dict(size=11, family="Arial", color="#333"), bgcolor="rgba(248,248,248,0.9)", bordercolor="#ddd", borderwidth=1, borderpad=8),
         ],
         margin=dict(l=70, r=180, t=70, b=60), width=1400, height=800,
-        xaxis=dict(title=dict(text='Pen Sensei Frequency', font=dict(size=13, color="#555")), range=[1.25, -0.05], tickvals=[1.15, 1, 0.5, 0], ticktext=['Only Mochiko', 'Infrequent', 'Average', 'Frequent'], tickfont=dict(size=11, color="#666"), showgrid=True, gridcolor='#eee', gridwidth=1, zeroline=False),
-        yaxis=dict(title=dict(text='Mochiko Frequency', font=dict(size=13, color="#555")), range=[1.25, -0.05], tickvals=[1.15, 1, 0.5, 0], ticktext=['Only Pen Sensei', 'Infrequent', 'Average', 'Frequent'], tickfont=dict(size=11, color="#666"), showgrid=True, gridcolor='#eee', gridwidth=1, zeroline=False),
+        xaxis=dict(title=dict(text='Chatbot P Frequency', font=dict(size=13, color="#555")), range=[1.25, -0.05], tickvals=[1.15, 1, 0.5, 0], ticktext=['Only Chatbot MO', 'Infrequent', 'Average', 'Frequent'], tickfont=dict(size=11, color="#666"), showgrid=True, gridcolor='#eee', gridwidth=1, zeroline=False),
+        yaxis=dict(title=dict(text='Chatbot MO Frequency', font=dict(size=13, color="#555")), range=[1.25, -0.05], tickvals=[1.15, 1, 0.5, 0], ticktext=['Only Chatbot P', 'Infrequent', 'Average', 'Frequent'], tickfont=dict(size=11, color="#666"), showgrid=True, gridcolor='#eee', gridwidth=1, zeroline=False),
         plot_bgcolor='white', paper_bgcolor='white',
     )
 
@@ -157,6 +159,7 @@ def build_word_cloud(csv_path, title, output_filename, top_n=80, min_count=1):
     svg_str = wc.to_svg()
     base = output_filename.replace('.html', '')
     output_dir = config.DATA_DIR / 'word_counts'
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     with open(output_dir / f'{base}.svg', 'w', encoding='utf-8') as f:
         f.write(svg_str)
@@ -237,31 +240,37 @@ def build_bar_chart(csv_path, title_suffix, output_filename, top_n=30):
 
 
 if __name__ == "__main__":
-    BASE_M = config.DATA_DIR / 'word_counts/mochiko/mochiko'
-    BASE_P = config.DATA_DIR / 'word_counts/pen_sensei/pen_sensei'
+    BASE_M = config.DATA_DIR / 'word_counts/chatbot_mo/chatbot_mo'
+    BASE_P = config.DATA_DIR / 'word_counts/chatbot_p/chatbot_p'
     BASE_INPUT = config.DATA_DIR / 'word_counts/input/input'
+    WC_DIR = config.DATA_DIR / 'word_counts'
 
+    # 散布図（比較）→ 根目录
     build_scatter_plot(pd.read_csv(f'{BASE_M}_output_words.csv'), pd.read_csv(f'{BASE_P}_output_words.csv'), title_suffix='Output — All Words', output_filename='output_visualization_words.html')
     build_scatter_plot(pd.read_csv(f'{BASE_M}_output_n.csv'), pd.read_csv(f'{BASE_P}_output_n.csv'), title_suffix='Output — Nouns', output_filename='output_visualization_nouns.html')
     build_scatter_plot(pd.read_csv(f'{BASE_M}_output_v.csv'), pd.read_csv(f'{BASE_P}_output_v.csv'), title_suffix='Output — Verbs', output_filename='output_visualization_verbs.html')
     build_scatter_plot(pd.read_csv(f'{BASE_M}_output_emojis.csv'), pd.read_csv(f'{BASE_P}_output_emojis.csv'), title_suffix='Output — Emoji', output_filename='output_visualization_emojis.html')
 
+    # 棒グラフ（input）→ input/
     for suffix, fname in [('All Words', 'input_visualization_words.html'), ('Nouns', 'input_visualization_nouns.html'), ('Verbs', 'input_visualization_verbs.html'), ('Emoji', 'input_visualization_emojis.html')]:
         csv_type = 'words' if 'All' in suffix else ('n' if 'Nouns' in suffix else ('v' if 'Verbs' in suffix else 'emojis'))
-        build_bar_chart(f'{BASE_INPUT}_{csv_type}.csv', title_suffix=suffix, output_filename=fname)
+        build_bar_chart(f'{BASE_INPUT}_{csv_type}.csv', title_suffix=suffix, output_filename=f'input/{fname}')
 
+    # 合并名词数据
     df_m_all = pd.read_csv(f'{BASE_M}_output_n.csv')
     df_p_all = pd.read_csv(f'{BASE_P}_output_n.csv')
     df_combined = pd.concat([df_m_all[['word', 'count']], df_p_all[['word', 'count']]]).groupby('word', as_index=False)['count'].sum().sort_values('count', ascending=False)
-    combined_path = config.DATA_DIR / 'word_counts' / '_combined_output_n.csv'
+    combined_path = WC_DIR / '_combined_output_n.csv'
     df_combined.to_csv(combined_path, index=False)
 
+    # 词云 → 各chatbot目录
     build_word_cloud(str(combined_path), title='Output — Nouns Word Cloud', output_filename='wordcloud_output_nouns.html', min_count=10)
-    build_word_cloud(f'{BASE_M}_output_n.csv', title='Mochiko — Nouns Word Cloud', output_filename='wordcloud_mochiko_nouns.html', min_count=5)
-    build_word_cloud(f'{BASE_P}_output_n.csv', title='Pen Sensei — Nouns Word Cloud', output_filename='wordcloud_pen_sensei_nouns.html', min_count=5)
-    build_word_cloud(f'{BASE_INPUT}_n.csv', title='User Input — Nouns Word Cloud', output_filename='wordcloud_input_nouns.html', min_count=10)
+    build_word_cloud(f'{BASE_M}_output_n.csv', title='Chatbot MO — Nouns Word Cloud', output_filename='chatbot_mo/wordcloud_chatbot_mo_nouns.html', min_count=5)
+    build_word_cloud(f'{BASE_P}_output_n.csv', title='Chatbot P — Nouns Word Cloud', output_filename='chatbot_p/wordcloud_chatbot_p_nouns.html', min_count=5)
+    build_word_cloud(f'{BASE_INPUT}_n.csv', title='User Input — Nouns Word Cloud', output_filename='input/wordcloud_input_nouns.html', min_count=10)
 
+    # Treemap → 各chatbot目录
     build_treemap(str(combined_path), title='Output — Nouns Treemap', output_filename='treemap_output_nouns.html', top_n=50, min_count=10)
-    build_treemap(f'{BASE_M}_output_n.csv', title='Mochiko — Nouns Treemap', output_filename='treemap_mochiko_nouns.html', top_n=50, min_count=5)
-    build_treemap(f'{BASE_P}_output_n.csv', title='Pen Sensei — Nouns Treemap', output_filename='treemap_pen_sensei_nouns.html', top_n=50, min_count=5)
-    build_treemap(f'{BASE_INPUT}_n.csv', title='User Input — Nouns Treemap', output_filename='treemap_input_nouns.html', top_n=50, min_count=10)
+    build_treemap(f'{BASE_M}_output_n.csv', title='Chatbot MO — Nouns Treemap', output_filename='chatbot_mo/treemap_chatbot_mo_nouns.html', top_n=50, min_count=5)
+    build_treemap(f'{BASE_P}_output_n.csv', title='Chatbot P — Nouns Treemap', output_filename='chatbot_p/treemap_chatbot_p_nouns.html', top_n=50, min_count=5)
+    build_treemap(f'{BASE_INPUT}_n.csv', title='User Input — Nouns Treemap', output_filename='input/treemap_input_nouns.html', top_n=50, min_count=10)
