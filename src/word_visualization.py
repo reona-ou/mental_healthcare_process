@@ -1,14 +1,11 @@
 """
 単語頻度可視化スクリプト
-散布図、棒グラフ、ワードクラウド、Treemap を生成する。
+散布図、棒グラフ、Treemap を生成する。
 """
 import os
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from wordcloud import WordCloud
-import io
-import base64
 import config
 
 # 統一サイズ定義
@@ -128,86 +125,28 @@ def build_scatter_plot(df_chatbot_mo, df_chatbot_p, title_suffix, output_filenam
     print(f"已保存至: {base}.html")
 
 
-def build_word_cloud(csv_path, title, output_filename, top_n=80, min_count=1):
-    """CSVデータに対してワードクラウドを生成"""
-    df = pd.read_csv(csv_path)
-    df = df[df['count'] >= min_count].head(top_n)
-    freq_dict = dict(zip(df['word'], df['count']))
-    n_words = len(freq_dict)
-
-    if n_words <= 20:
-        w, h, margin, mh = 900, 600, 2, 0.9
-    elif n_words <= 50:
-        w, h, margin, mh = 1200, 700, 4, 0.8
-    else:
-        w, h, margin, mh = 1600, 900, 10, 0.65
-
-    wc = WordCloud(
-        width=w, height=h, background_color='white', max_words=top_n,
-        colormap='plasma', prefer_horizontal=mh,
-        min_font_size=14 if n_words <= 20 else 12, max_font_size=150,
-        relative_scaling=0.5, margin=margin,
-    )
-    wc.generate_from_frequencies(freq_dict)
-
-    img = wc.to_image()
-    buffered = io.BytesIO()
-    img.save(buffered, format="PNG", optimize=True)
-    img_str = base64.b64encode(buffered.getvalue()).decode()
-    img_data = "data:image/png;base64," + img_str
-
-    svg_str = wc.to_svg()
-    base = output_filename.replace('.html', '')
-    output_dir = config.DATA_DIR / 'word_counts'
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    with open(output_dir / f'{base}.svg', 'w', encoding='utf-8') as f:
-        f.write(svg_str)
-
-    html_content = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>{title}</title>
-<style>
-* {{ margin: 0; padding: 0; box-sizing: border-box; }}
-body {{ background: #f5f5f5; font-family: "Hiragino Sans", "Yu Gothic", sans-serif; padding: 32px; }}
-h1 {{ text-align: center; color: #222; font-size: 24px; font-weight: 600; margin-bottom: 24px; letter-spacing: 0.5px; }}
-.container {{ max-width: {w + 48}px; margin: 0 auto; text-align: center; background: #fff; border-radius: 8px; padding: 24px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }}
-img {{ max-width: 100%; height: auto; display: block; margin: 0 auto; }}
-.stats {{ margin-top: 16px; color: #888; font-size: 13px; }}
-</style></head><body>
-<h1>{title}</h1>
-<div class="container"><img src="{img_data}" alt="{title}">
-<div class="stats">{n_words} words | min count: {min_count}</div></div>
-</body></html>"""
-
-    with open(output_dir / output_filename, 'w', encoding='utf-8') as f:
-        f.write(html_content)
-    print(f"已保存至: {output_dir / output_filename}")
-
-
 def build_treemap(csv_path, title, output_filename, top_n=50, min_count=1):
     """CSVデータに対してTreemap（単語頻度ツリーマップ）を生成"""
     df = pd.read_csv(csv_path)
     df = df[df['count'] >= min_count].head(top_n)
-    df['label'] = df['word'] + '\n' + df['count'].astype(str)
 
-    fig = go.Figure(go.Treemap(
-        labels=df['label'], parents=[''] * len(df), values=df['count'],
-        textinfo='label', textfont=dict(size=24),
+    treemap_kwargs = dict(
+        labels=df['word'], parents=[''] * len(df), values=df['count'],
+        texttemplate='<b>%{label}</b><br><i>f=%{value}</i>',
+        textposition='bottom right',
+        textfont=dict(size=24),
         marker=dict(colors=df['count'], colorscale='YlGn', showscale=True, colorbar=dict(title='count')),
         hovertemplate='<b>%{customdata}</b><br>Count: %{value}<extra></extra>', customdata=df['word'],
-    ))
+    )
+
+    fig = go.Figure(go.Treemap(**treemap_kwargs))
     fig.update_layout(title=dict(text=title, x=0.5, font=dict(size=22)), margin=dict(l=10, r=10, t=80, b=10), width=1200, height=800)
 
     output_file = config.DATA_DIR / 'word_counts' / output_filename
     base = str(output_file).replace('.html', '')
     fig.write_html(str(base) + '.html')
 
-    fig_no_title = go.Figure(go.Treemap(
-        labels=df['label'], parents=[''] * len(df), values=df['count'],
-        textinfo='label', textfont=dict(size=24),
-        marker=dict(colors=df['count'], colorscale='YlGn', showscale=True, colorbar=dict(title='count')),
-        hovertemplate='<b>%{customdata}</b><br>Count: %{value}<extra></extra>', customdata=df['word'],
-    ))
+    fig_no_title = go.Figure(go.Treemap(**treemap_kwargs))
     fig_no_title.update_layout(margin=dict(l=10, r=10, t=10, b=10), width=1200, height=800)
     fig_no_title.write_image(str(base) + '.svg', width=FIG_WIDE_W, height=FIG_WIDE_H, scale=1)
     print(f"已保存至: {base}.html / .svg")
@@ -263,14 +202,8 @@ if __name__ == "__main__":
     combined_path = WC_DIR / '_combined_output_n.csv'
     df_combined.to_csv(combined_path, index=False)
 
-    # 词云 → 各chatbot目录
-    build_word_cloud(str(combined_path), title='Output — Nouns Word Cloud', output_filename='wordcloud_output_nouns.html', min_count=10)
-    build_word_cloud(f'{BASE_M}_output_n.csv', title='Chatbot MO — Nouns Word Cloud', output_filename='chatbot_mo/wordcloud_chatbot_mo_nouns.html', min_count=5)
-    build_word_cloud(f'{BASE_P}_output_n.csv', title='Chatbot P — Nouns Word Cloud', output_filename='chatbot_p/wordcloud_chatbot_p_nouns.html', min_count=5)
-    build_word_cloud(f'{BASE_INPUT}_n.csv', title='User Input — Nouns Word Cloud', output_filename='input/wordcloud_input_nouns.html', min_count=10)
-
     # Treemap → 各chatbot目录
-    build_treemap(str(combined_path), title='Output — Nouns Treemap', output_filename='treemap_output_nouns.html', top_n=50, min_count=10)
+    build_treemap(str(combined_path), title='Output — Nouns Treemap', output_filename='treemap_output_nouns.html', top_n=50, min_count=20)
     build_treemap(f'{BASE_M}_output_n.csv', title='Chatbot MO — Nouns Treemap', output_filename='chatbot_mo/treemap_chatbot_mo_nouns.html', top_n=50, min_count=5)
     build_treemap(f'{BASE_P}_output_n.csv', title='Chatbot P — Nouns Treemap', output_filename='chatbot_p/treemap_chatbot_p_nouns.html', top_n=50, min_count=5)
-    build_treemap(f'{BASE_INPUT}_n.csv', title='User Input — Nouns Treemap', output_filename='input/treemap_input_nouns.html', top_n=50, min_count=10)
+    build_treemap(f'{BASE_INPUT}_n.csv', title='User Input — Nouns Treemap', output_filename='input/treemap_input_nouns.html', top_n=50, min_count=5)
